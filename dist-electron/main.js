@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
@@ -43,8 +43,7 @@ function toggleWindow() {
   if (win.isVisible()) {
     win.hide();
   } else {
-    win.show();
-    win.focus();
+    win.showInactive();
   }
 }
 app.on("window-all-closed", () => {
@@ -60,14 +59,67 @@ app.on("activate", () => {
 });
 app.whenReady().then(() => {
   createWindow();
-  const shortcut = "CommandOrControl+Alt+Space";
-  const ret = globalShortcut.register(shortcut, () => {
-    console.log(`${shortcut} is pressed`);
+  const toggleShortcut = "CommandOrControl+/";
+  globalShortcut.register(toggleShortcut, () => {
     toggleWindow();
   });
-  if (!ret) {
-    console.log("Registration failed");
-  }
+  const moveWindow = (pos) => {
+    if (!win) return;
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: screenW, height: screenH } = primaryDisplay.workAreaSize;
+    const { width: winW, height: winH } = win.getBounds();
+    const margin = 20;
+    let x = (screenW - winW) / 2;
+    let y = (screenH - winH) / 2;
+    switch (pos) {
+      case "tl":
+        x = margin;
+        y = margin;
+        break;
+      case "tc":
+        x = (screenW - winW) / 2;
+        y = margin;
+        break;
+      case "tr":
+        x = screenW - winW - margin;
+        y = margin;
+        break;
+      case "lc":
+        x = margin;
+        y = (screenH - winH) / 2;
+        break;
+      case "cc":
+        x = (screenW - winW) / 2;
+        y = (screenH - winH) / 2;
+        break;
+      case "rc":
+        x = screenW - winW - margin;
+        y = (screenH - winH) / 2;
+        break;
+      case "bl":
+        x = margin;
+        y = screenH - winH - margin;
+        break;
+      case "bc":
+        x = (screenW - winW) / 2;
+        y = screenH - winH - margin;
+        break;
+      case "br":
+        x = screenW - winW - margin;
+        y = screenH - winH - margin;
+        break;
+    }
+    win.setPosition(Math.round(x), Math.round(y), true);
+  };
+  globalShortcut.register("CommandOrControl+Up", () => moveWindow("tc"));
+  globalShortcut.register("CommandOrControl+Down", () => moveWindow("bc"));
+  globalShortcut.register("CommandOrControl+Left", () => moveWindow("lc"));
+  globalShortcut.register("CommandOrControl+Right", () => moveWindow("rc"));
+  globalShortcut.register("CommandOrControl+Alt+Up", () => moveWindow("tl"));
+  globalShortcut.register("CommandOrControl+Alt+Right", () => moveWindow("tr"));
+  globalShortcut.register("CommandOrControl+Alt+Down", () => moveWindow("br"));
+  globalShortcut.register("CommandOrControl+Alt+Left", () => moveWindow("bl"));
+  globalShortcut.register("CommandOrControl+Alt+C", () => moveWindow("cc"));
   ipcMain.on("hide-window", () => {
     win == null ? void 0 : win.hide();
   });
