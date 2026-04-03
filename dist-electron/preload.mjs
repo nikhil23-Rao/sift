@@ -2,6 +2,7 @@
 const electron = require("electron");
 electron.contextBridge.exposeInMainWorld("api", {
   hideWindow: () => electron.ipcRenderer.send("hide-window"),
+  resizeWindow: (width, height) => electron.ipcRenderer.send("resize-window", { width, height }),
   // Add more methods as needed
   onMainProcessMessage: (callback) => {
     electron.ipcRenderer.on("main-process-message", (_event, message) => callback(message));
