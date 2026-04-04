@@ -466,11 +466,18 @@ const App = () => {
 
   useEffect(() => {
     if (!userData?.onboarded) return
-    if (activeMode === 'drawing') window.api?.resizeWindow(900, 650)
-    else if (activeMode === 'profile') window.api?.resizeWindow(700, 550)
-    else if (activeMode === 'problem-assistant') window.api?.resizeWindow(700, 480)
-    else window.api?.resizeWindow(700, 480)
-  }, [activeMode, userData])
+    
+    const isCollapsed = activeMode === 'default' && searchValue === ''
+    
+    if (isCollapsed) {
+      window.api?.resizeWindow(700, 185)
+    } else {
+      if (activeMode === 'drawing') window.api?.resizeWindow(900, 650)
+      else if (activeMode === 'profile') window.api?.resizeWindow(700, 550)
+      else if (activeMode === 'problem-assistant') window.api?.resizeWindow(700, 600)
+      else window.api?.resizeWindow(700, 480)
+    }
+  }, [activeMode, userData, searchValue])
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -516,9 +523,20 @@ const App = () => {
     { id: 'recording', icon: <Icons.Recording />, label: 'Rec' },
   ]
 
+  const isCollapsed = activeMode === 'default' && searchValue === ''
+
   return (
-    <div className="h-screen w-screen bg-transparent p-4 flex flex-col items-center selection:bg-blue-500/30">
-      <div className="relative w-full flex-1 liquid-glass rounded-[2.5rem] overflow-hidden drag flex flex-col mb-4 shadow-2xl">
+    <div className="h-screen w-screen bg-transparent p-4 flex flex-col items-center selection:bg-blue-500/30 overflow-hidden">
+      <motion.div 
+        layout
+        initial={false}
+        animate={{ 
+          height: isCollapsed ? 92 : '100%',
+          flexGrow: isCollapsed ? 0 : 1
+        }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        className="relative w-full liquid-glass rounded-[2.5rem] overflow-hidden drag flex flex-col mb-4 shadow-2xl"
+      >
         <div className="absolute inset-0 bg-gradient-to-tr from-white/[0.02] to-transparent pointer-events-none" />
         
         {/* Header - Now fully draggable background */}
@@ -550,39 +568,68 @@ const App = () => {
           <div className="absolute top-6 left-8 z-50 text-white/10"><Icons.DragHandle /></div>
         )}
 
-        <div className="flex-1 overflow-y-auto no-drag">
-          {activeMode === 'default' && <DefaultView onSelectMode={setActiveMode} />}
-          {activeMode === 'drawing' && <div className="h-full no-drag"><Tldraw persistenceKey="ghost-hud-canvas" inferDarkMode /></div>}
-          {activeMode === 'profile' && <ProfileView userData={userData} />}
-          {activeMode === 'problem-assistant' && <ProblemAssistantView />}
+        <div className="flex-1 overflow-y-auto no-drag min-h-0">
+          <AnimatePresence mode="wait">
+            {!isCollapsed && (
+              <motion.div
+                key={activeMode}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                transition={{ duration: 0.2 }}
+                className="h-full"
+              >
+                {activeMode === 'default' && <DefaultView onSelectMode={setActiveMode} />}
+                {activeMode === 'drawing' && <div className="h-full no-drag"><Tldraw persistenceKey="ghost-hud-canvas" inferDarkMode /></div>}
+                {activeMode === 'profile' && <ProfileView userData={userData} />}
+                {activeMode === 'problem-assistant' && <ProblemAssistantView />}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Draggable Footer Background */}
-        {activeMode !== 'problem-assistant' && (
-          <div className="px-8 py-4 flex justify-between items-center bg-white/[0.01] border-t border-white/[0.05]">
-            <button onClick={() => setActiveMode('profile')} className="flex items-center space-x-3 no-drag group">
-              <div className="relative">
-                <img src={user.photoURL || ''} alt="" className="w-8 h-8 rounded-2xl border border-white/10 group-hover:scale-110 transition-transform" />
-                <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-zinc-900" />
-              </div>
-              <div className="text-left">
-                <p className="text-[11px] font-black text-white group-hover:text-blue-400 transition-colors uppercase tracking-widest leading-none">{userData.displayName}</p>
-                <p className="text-[9px] font-bold text-white/20 uppercase tracking-tighter mt-1">{userData.school}</p>
-              </div>
-            </button>
-            <div className="text-white/5"><Icons.DragHandle /></div>
-          </div>
-        )}
-      </div>
+        <AnimatePresence>
+          {activeMode !== 'problem-assistant' && !isCollapsed && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="px-8 py-4 flex justify-between items-center bg-white/[0.01] border-t border-white/[0.05]"
+            >
+              <button onClick={() => setActiveMode('profile')} className="flex items-center space-x-3 no-drag group">
+                <div className="relative">
+                  <img src={user.photoURL || ''} alt="" className="w-8 h-8 rounded-2xl border border-white/10 group-hover:scale-110 transition-transform" />
+                  <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-zinc-900" />
+                </div>
+                <div className="text-left">
+                  <p className="text-[11px] font-black text-white group-hover:text-blue-400 transition-colors uppercase tracking-widest leading-none">{userData.displayName}</p>
+                  <p className="text-[9px] font-bold text-white/20 uppercase tracking-tighter mt-1">{userData.school}</p>
+                </div>
+              </button>
+              <div className="text-white/5"><Icons.DragHandle /></div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
 
-      <div className="flex items-center p-1.5 bg-zinc-900/60 backdrop-blur-2xl rounded-2xl border border-white/10 space-x-1 no-drag shadow-2xl">
-        {modes.map(m => (
-          <button key={m.id} onClick={() => setActiveMode(m.id)} className={`flex items-center space-x-2 px-4 py-2 rounded-xl transition-all ${activeMode === m.id ? 'bg-white/10 text-white shadow-inner' : 'text-white/40 hover:text-white/70'}`}>
-            <span className={activeMode === m.id ? 'text-blue-400 scale-110' : ''}>{m.icon}</span>
-            {activeMode === m.id && <span className="text-[11px] font-bold uppercase tracking-widest">{m.label}</span>}
-          </button>
-        ))}
-      </div>
+      <AnimatePresence>
+        {(activeMode === 'default' || !isCollapsed) && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="flex items-center p-1.5 bg-zinc-900/60 backdrop-blur-2xl rounded-2xl border border-white/10 space-x-1 no-drag shadow-2xl"
+          >
+            {modes.map(m => (
+              <button key={m.id} onClick={() => setActiveMode(m.id)} className={`flex items-center space-x-2 px-4 py-2 rounded-xl transition-all ${activeMode === m.id ? 'bg-white/10 text-white shadow-inner' : 'text-white/40 hover:text-white/70'}`}>
+                <span className={activeMode === m.id ? 'text-blue-400 scale-110' : ''}>{m.icon}</span>
+                {activeMode === m.id && <span className="text-[11px] font-bold uppercase tracking-widest">{m.label}</span>}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

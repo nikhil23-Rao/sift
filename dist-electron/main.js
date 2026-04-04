@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
@@ -24,7 +24,7 @@ function createWindow() {
     movable: true,
     resizable: false,
     webPreferences: {
-      preload: path.join(__dirname$1, "preload.js"),
+      preload: path.join(__dirname$1, "preload.mjs"),
       nodeIntegration: false,
       contextIsolation: true
     }
@@ -120,6 +120,10 @@ app.whenReady().then(() => {
   globalShortcut.register("CommandOrControl+Alt+Down", () => moveWindow("br"));
   globalShortcut.register("CommandOrControl+Alt+Left", () => moveWindow("bl"));
   globalShortcut.register("CommandOrControl+Alt+C", () => moveWindow("cc"));
+  globalShortcut.register("CommandOrControl+Shift+A", () => {
+    win == null ? void 0 : win.show();
+    win == null ? void 0 : win.webContents.send("trigger-problem-assistant");
+  });
   ipcMain.on("hide-window", () => {
     win == null ? void 0 : win.hide();
   });
@@ -136,6 +140,32 @@ app.whenReady().then(() => {
       width: Math.round(width),
       height: Math.round(height)
     }, true);
+  });
+  ipcMain.handle("capture-screen", async () => {
+    console.log("Capture screen requested...");
+    try {
+      if (win) {
+        win.hide();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const { width, height } = primaryDisplay.size;
+      const sources = await desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: { width, height }
+      });
+      if (win) {
+        win.showInactive();
+      }
+      const selectedSource = sources[0];
+      if (!selectedSource) throw new Error("No screen source found for capture");
+      const dataUrl = selectedSource.thumbnail.toDataURL();
+      return dataUrl;
+    } catch (error) {
+      if (win) win.showInactive();
+      console.error("Failed to capture screen (Main Process):", error);
+      throw error;
+    }
   });
 });
 app.on("will-quit", () => {
