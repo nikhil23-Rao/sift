@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, globalShortcut, ipcMain, screen, desktopCapturer } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -35,7 +35,7 @@ function createWindow() {
     movable: true,
     resizable: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.mjs'),
       nodeIntegration: false,
       contextIsolation: true,
     },
@@ -49,7 +49,6 @@ function createWindow() {
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    // win.loadFile('dist/index.html')
     win.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
 }
@@ -64,9 +63,6 @@ function toggleWindow() {
   }
 }
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
@@ -75,8 +71,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow()
   }
@@ -85,13 +79,11 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   createWindow()
 
-  // Register global visibility toggle
   const toggleShortcut = 'CommandOrControl+/'
   globalShortcut.register(toggleShortcut, () => {
     toggleWindow()
   })
 
-  // Window Snapping Logic
   const moveWindow = (pos: 'tl' | 'tc' | 'tr' | 'lc' | 'cc' | 'rc' | 'bl' | 'bc' | 'br') => {
     if (!win) return
     const primaryDisplay = screen.getPrimaryDisplay()
@@ -117,7 +109,6 @@ app.whenReady().then(() => {
     win.setPosition(Math.round(x), Math.round(y), true)
   }
 
-  // Register Snapping Shortcuts
   globalShortcut.register('CommandOrControl+Up', () => moveWindow('tc'))
   globalShortcut.register('CommandOrControl+Down', () => moveWindow('bc'))
   globalShortcut.register('CommandOrControl+Left', () => moveWindow('lc'))
@@ -128,12 +119,15 @@ app.whenReady().then(() => {
   globalShortcut.register('CommandOrControl+Alt+Left', () => moveWindow('bl'))
   globalShortcut.register('CommandOrControl+Alt+C', () => moveWindow('cc'))
 
-  // Handle IPC for hiding window from renderer
+  globalShortcut.register('CommandOrControl+Shift+A', () => {
+    win?.show()
+    win?.webContents.send('trigger-problem-assistant')
+  })
+
   ipcMain.on('hide-window', () => {
     win?.hide()
   })
 
-  // Handle IPC for resizing window from renderer
   ipcMain.on('resize-window', (_event, { width, height }) => {
     if (!win) return
     const bounds = win.getBounds()
@@ -148,11 +142,46 @@ app.whenReady().then(() => {
       y: newY,
       width: Math.round(width),
       height: Math.round(height)
-    }, true) // true enables smooth animation on macOS
+    }, true)
+  })
+
+  ipcMain.handle('capture-screen', async () => {
+    console.log('Capture screen requested...');
+    try {
+      // Hide the window first to exclude it from the capture
+      if (win) {
+        win.hide();
+        // Give the OS a tiny moment to actually hide the window
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      const primaryDisplay = screen.getPrimaryDisplay()
+      const { width, height } = primaryDisplay.size
+      
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width, height }
+      })
+      
+      // Re-show the window as soon as possible
+      if (win) {
+        win.showInactive();
+      }
+
+      const selectedSource = sources[0];
+
+      if (!selectedSource) throw new Error('No screen source found for capture')
+      
+      const dataUrl = selectedSource.thumbnail.toDataURL()
+      return dataUrl
+    } catch (error) {
+      if (win) win.showInactive();
+      console.error('Failed to capture screen (Main Process):', error)
+      throw error
+    }
   })
 })
 
 app.on('will-quit', () => {
-  // Unregister all shortcuts
   globalShortcut.unregisterAll()
 })
