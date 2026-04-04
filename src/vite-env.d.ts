@@ -16,10 +16,12 @@ interface ImportMeta {
 
 interface Window {
   api: {
-    hideWindow: () => void;
-    resizeWindow: (width: number, height: number) => void;
-    captureScreen: () => Promise<string>;
-    onTriggerProblemAssistant: (callback: () => void) => void;
-    onMainProcessMessage: (callback: (message: string) => void) => void;
-  };
+    hideWindow: () => void
+    resizeWindow: (width: number, height: number) => void
+    setIgnoreMouse: (ignore: boolean) => void
+    captureScreen: () => Promise<string>
+    onTriggerProblemAssistant: (callback: () => void) => void
+    onMainProcessMessage: (callback: (message: string) => void) => void
+  }
+
 }

@@ -5,6 +5,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('api', {
   hideWindow: () => ipcRenderer.send('hide-window'),
   resizeWindow: (width: number, height: number) => ipcRenderer.send('resize-window', { width, height }),
+  setIgnoreMouse: (ignore: boolean) => ipcRenderer.send('set-ignore-mouse', ignore),
   captureScreen: () => ipcRenderer.invoke('capture-screen'),
   onTriggerProblemAssistant: (callback: () => void) => {
     ipcRenderer.on('trigger-problem-assistant', () => callback())

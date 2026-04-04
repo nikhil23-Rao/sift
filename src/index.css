@@ -63,3 +63,16 @@ html, body, #root {
   animation: flow 8s linear infinite;
   pointer-events: none;
 }
+
+/* Tldraw Transparent Background ONLY for Napkin Sketch */
+.napkin-mode .tl-container {
+  background-color: transparent !important;
+}
+
+.napkin-mode .tl-background {
+  background-color: transparent !important;
+}
+
+.napkin-mode .tl-background__overlay {
+  display: none !important;
+}

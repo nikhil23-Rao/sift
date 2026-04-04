@@ -145,6 +145,10 @@ app.whenReady().then(() => {
     }, true)
   })
 
+  ipcMain.on('set-ignore-mouse', (_event, ignore) => {
+    win?.setIgnoreMouseEvents(ignore, { forward: true })
+  })
+
   ipcMain.handle('capture-screen', async () => {
     console.log('Capture screen requested...');
     try {

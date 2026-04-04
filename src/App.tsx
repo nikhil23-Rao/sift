@@ -11,7 +11,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 
 // --- Types ---
-type ActiveMode = 'default' | 'text-sync' | 'video-summary' | 'drawing' | 'recording' | 'profile' | 'problem-assistant'
+type ActiveMode = 'default' | 'text-sync' | 'video-summary' | 'drawing' | 'napkin-sketch' | 'recording' | 'profile' | 'problem-assistant'
 type StudentStatus = 'college' | 'highschool' | 'none'
 
 interface UserData {
@@ -47,8 +47,11 @@ const Icons = {
   Video: () => (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
   ),
-  Drawing: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.5 1.5"></path><path d="M7.5 3.5L14 10"></path></svg>
+  Board: () => (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+  ),
+  Pencil: () => (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
   ),
   Recording: () => (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
@@ -208,9 +211,9 @@ const DefaultView = ({ onSelectMode }: { onSelectMode: (mode: ActiveMode) => voi
     <div className="px-4 py-2 text-[11px] font-bold text-white/30 uppercase tracking-[0.2em]">Quick Commands</div>
     {[
       { key: 'A', label: 'Problem Assistant', desc: 'Solve anything on your screen', mode: 'problem-assistant' as ActiveMode },
+      { key: 'W', label: 'Whiteboard', desc: 'Internal canvas for focused notes', mode: 'drawing' as ActiveMode },
+      { key: 'D', label: 'Napkin Sketch', desc: 'Draw directly over other apps', mode: 'napkin-sketch' as ActiveMode },
       { key: 'S', label: 'Summarize Video', desc: 'Generate AI notes from URL', mode: 'video-summary' as ActiveMode },
-      { key: 'D', label: 'Napkin Sketch', desc: 'Digitize hand-drawn diagrams', mode: 'drawing' as ActiveMode },
-      { key: 'R', label: 'Record Lecture', desc: 'Live transcript & slides', mode: 'recording' as ActiveMode },
     ].map((item) => (
       <div 
         key={item.key} 
@@ -469,7 +472,12 @@ const App = () => {
     
     const isCollapsed = activeMode === 'default' && searchValue === ''
     
-    if (isCollapsed) {
+    if (activeMode === 'napkin-sketch') {
+      // Full horizontal width, slightly less vertical height
+      const width = window.screen.width
+      const height = Math.min(850, window.screen.height * 0.8)
+      window.api?.resizeWindow(width, height)
+    } else if (isCollapsed) {
       window.api?.resizeWindow(700, 185)
     } else {
       if (activeMode === 'drawing') window.api?.resizeWindow(900, 650)
@@ -516,14 +524,56 @@ const App = () => {
 
   const modes: { id: ActiveMode; icon: React.ReactNode; label: string }[] = [
     { id: 'default', icon: <Icons.Default />, label: 'Home' },
-    { id: 'text-sync', icon: <Icons.TextSync />, label: 'Sync' },
-    { id: 'video-summary', icon: <Icons.Video />, label: 'Video' },
-    { id: 'drawing', icon: <Icons.Drawing />, label: 'Draw' },
+    { id: 'drawing', icon: <Icons.Board />, label: 'Board' },
+    { id: 'napkin-sketch', icon: <Icons.Pencil />, label: 'Sketch' },
     { id: 'problem-assistant', icon: <Icons.Problem />, label: 'Solve' },
-    { id: 'recording', icon: <Icons.Recording />, label: 'Rec' },
+    { id: 'profile', icon: <div className="w-4 h-4 rounded-full overflow-hidden border border-white/20"><img src={user.photoURL || ''} className="w-full h-full object-cover" /></div>, label: 'User' },
   ]
 
   const isCollapsed = activeMode === 'default' && searchValue === ''
+
+  if (activeMode === 'napkin-sketch') {
+    return (
+      <div 
+        className="h-screen w-screen bg-transparent relative no-drag overflow-hidden flex flex-col items-center napkin-mode"
+        onMouseEnter={() => window.api?.setIgnoreMouse(false)}
+        onMouseLeave={() => window.api?.setIgnoreMouse(true)}
+      >
+        {/* Sleek Unified Floating Header */}
+        <div className="absolute top-6 left-10 z-50 flex items-center space-x-4 pointer-events-auto">
+          <div className="flex items-center space-x-3 bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 shadow-2xl">
+            <div className="relative flex items-center justify-center">
+              <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-ping absolute opacity-75" />
+              <div className="w-2.5 h-2.5 bg-red-500 rounded-full relative" />
+            </div>
+            <span className="text-white text-[11px] font-black uppercase tracking-[0.2em]">Napkin Sketch</span>
+            <div className="w-[1px] h-3 bg-white/10 mx-2" />
+            <span className="text-white/40 text-[10px] font-bold uppercase tracking-widest">Overlay Active</span>
+          </div>
+
+          <button 
+            onClick={() => {
+              window.api?.setIgnoreMouse(false)
+              setActiveMode('default')
+            }}
+            onMouseEnter={() => window.api?.setIgnoreMouse(false)}
+            className="bg-white text-black font-black uppercase text-[11px] tracking-[0.2em] px-8 py-3.5 rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] flex items-center space-x-3 group"
+          >
+            <span>Exit Sketch</span>
+            <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+          </button>
+        </div>
+
+        <div className="absolute inset-0 z-0">
+          <Tldraw 
+            persistenceKey="napkin-sketch" 
+            inferDarkMode 
+            hideUi={false}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-screen w-screen bg-transparent p-4 flex flex-col items-center selection:bg-blue-500/30 overflow-hidden">
@@ -541,14 +591,14 @@ const App = () => {
         
         {/* Header - Now fully draggable background */}
         {activeMode !== 'drawing' && activeMode !== 'profile' && activeMode !== 'problem-assistant' && (
-          <div className="relative flex items-center px-8 py-7 border-b border-white/[0.08]">
+          <div className="relative flex items-center px-8 py-7">
             <div className="mr-4 text-white/10"><Icons.DragHandle /></div>
-            <input ref={inputRef} type="text" className="w-full bg-transparent text-white text-2xl font-semibold focus:outline-none placeholder-white/10 no-drag" placeholder="Search..." value={searchValue} onChange={e => setSearchValue(e.target.value)} autoFocus />
+            <input ref={inputRef} type="text" className="w-full bg-transparent text-white text-2xl font-semibold focus:outline-none placeholder-gray/10 no-drag" style={{color:"lightgray", fontWeight:"normal"}} placeholder="What will you Sift through..." value={searchValue} onChange={e => setSearchValue(e.target.value)} autoFocus />
           </div>
         )}
 
         {(activeMode === 'profile' || activeMode === 'problem-assistant') && (
-          <div className="relative flex items-center px-8 py-6 border-b border-white/[0.08]">
+          <div className="relative flex items-center px-8 py-6">
             <div className="mr-4 text-white/10"><Icons.DragHandle /></div>
             <button onClick={() => setActiveMode('default')} className="mr-4 p-2 hover:bg-white/10 rounded-xl text-white/40 transition-colors no-drag">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
