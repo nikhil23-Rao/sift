@@ -3,6 +3,7 @@ const electron = require("electron");
 electron.contextBridge.exposeInMainWorld("api", {
   hideWindow: () => electron.ipcRenderer.send("hide-window"),
   resizeWindow: (width, height) => electron.ipcRenderer.send("resize-window", { width, height }),
+  setIgnoreMouse: (ignore) => electron.ipcRenderer.send("set-ignore-mouse", ignore),
   captureScreen: () => electron.ipcRenderer.invoke("capture-screen"),
   onTriggerProblemAssistant: (callback) => {
     electron.ipcRenderer.on("trigger-problem-assistant", () => callback());
