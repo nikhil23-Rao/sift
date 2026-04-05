@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, screen } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { registerShortcuts, unregisterShortcuts } from './modules/shortcuts'
@@ -18,13 +18,20 @@ let win: BrowserWindow | null
 
 function createWindow() {
   try {
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const { width: screenWidth } = primaryDisplay.workAreaSize
+    const width = 850
+    const height = 110
+
     win = new BrowserWindow({
-      width: 700,
-      height: 480,
+      width,
+      height,
+      x: Math.round((screenWidth - width) / 2),
+      y: 0,
       frame: false,
       transparent: true,
       alwaysOnTop: true,
-      skipTaskbar: false, // Changed to false to see it in taskbar/dock for debugging
+      skipTaskbar: false,
       movable: true,
       resizable: false,
       webPreferences: {

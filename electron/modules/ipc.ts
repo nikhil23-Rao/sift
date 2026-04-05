@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, screen } from 'electron'
 import { captureScreen } from './capture'
 import { handleStudentSearch } from './search'
 
@@ -9,12 +9,11 @@ export function setupIpc(win: BrowserWindow | null) {
 
   ipcMain.on('resize-window', (_event, { width, height }) => {
     if (!win) return
-    const bounds = win.getBounds()
-    const centerX = bounds.x + bounds.width / 2
-    const centerY = bounds.y + bounds.height / 2
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const { width: screenWidth } = primaryDisplay.workAreaSize
     
-    const newX = Math.round(centerX - width / 2)
-    const newY = Math.round(centerY - height / 2)
+    const newX = Math.round((screenWidth - width) / 2)
+    const newY = 0 // Glue to the absolute top
     
     win.setBounds({
       x: newX,

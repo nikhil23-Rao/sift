@@ -1428,11 +1428,10 @@ function setupIpc(win2) {
   });
   ipcMain.on("resize-window", (_event, { width, height }) => {
     if (!win2) return;
-    const bounds = win2.getBounds();
-    const centerX = bounds.x + bounds.width / 2;
-    const centerY = bounds.y + bounds.height / 2;
-    const newX = Math.round(centerX - width / 2);
-    const newY = Math.round(centerY - height / 2);
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: screenWidth } = primaryDisplay.workAreaSize;
+    const newX = Math.round((screenWidth - width) / 2);
+    const newY = 0;
     win2.setBounds({
       x: newX,
       y: newY,
@@ -1459,14 +1458,19 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 let win;
 function createWindow() {
   try {
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: screenWidth } = primaryDisplay.workAreaSize;
+    const width = 850;
+    const height = 110;
     win = new BrowserWindow({
-      width: 700,
-      height: 480,
+      width,
+      height,
+      x: Math.round((screenWidth - width) / 2),
+      y: 0,
       frame: false,
       transparent: true,
       alwaysOnTop: true,
       skipTaskbar: false,
-      // Changed to false to see it in taskbar/dock for debugging
       movable: true,
       resizable: false,
       webPreferences: {
