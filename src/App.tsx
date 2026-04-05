@@ -205,8 +205,8 @@ const App = () => {
         onMouseEnter={() => window.api?.setIgnoreMouse(false)}
         onMouseLeave={() => window.api?.setIgnoreMouse(true)}
       >
-        <div className="absolute top-6 left-10 z-50 flex items-center space-x-4 pointer-events-auto">
-          <div className="flex items-center space-x-3 bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 ">
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex items-center space-x-4 pointer-events-auto">
+          <div className="flex items-center space-x-3 bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 shadow-2xl">
             <div className="relative flex items-center justify-center">
               <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-ping absolute opacity-75" />
               <div className="w-2.5 h-2.5 bg-red-500 rounded-full relative" />
@@ -222,7 +222,7 @@ const App = () => {
               setActiveMode('default')
             }}
             onMouseEnter={() => window.api?.setIgnoreMouse(false)}
-            className="bg-white text-black font-black uppercase text-[11px] tracking-[0.2em] px-8 py-3.5 rounded-2xl hover:scale-105 active:scale-95 transition-all  flex items-center space-x-3 group"
+            className="bg-white text-black font-black uppercase text-[11px] tracking-[0.2em] px-8 py-3.5 rounded-2xl hover:scale-105 active:scale-95 transition-all flex items-center space-x-3 group shadow-2xl"
           >
             <span>Exit Sketch</span>
             <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
@@ -265,9 +265,9 @@ const App = () => {
             <input 
               ref={inputRef} 
               type="text" 
-              className="w-full bg-transparent text-white focus:outline-none placeholder-white/20 no-drag text-sm font-medium transition-all"
-              style={{color: isResearchMode ? '#60a5fa' : 'white', fontWeight: '500'}} 
-              placeholder="Search or ask..." 
+              className="w-full bg-transparent text-white focus:outline-none placeholder-gray/20 no-drag text-sm font-medium transition-all"
+              style={{color: isResearchMode ? '#60a5fa' : '#90949C', fontWeight: '400'}} 
+              placeholder="Sift through anything..." 
               value={searchValue} 
               onChange={e => setSearchValue(e.target.value)} 
               onKeyDown={handleSearch}
@@ -286,18 +286,30 @@ const App = () => {
               <button 
                 key={m.id} 
                 onClick={() => setActiveMode(m.id)}
-                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-all group ${
-                  activeMode === m.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-white/40 hover:text-white hover:bg-white/10'
-                }`}
+                className={`flex items-center rounded-lg transition-all group py-1.5 ${
+                  activeMode === m.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 px-3' : 'text-white/40 hover:text-white hover:bg-white/10 px-2'
+                } ${searchValue.length > 20 ? 'space-x-0' : 'space-x-2'}`}
               >
-                <span className="scale-90">{m.icon}</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider">{m.label}</span>
+                <span className="scale-90 shrink-0">{m.icon}</span>
+                <AnimatePresence>
+                  {searchValue.length <= 20 && (
+                    <motion.span 
+                      initial={{ width: 0, opacity: 0 }}
+                      animate={{ width: 'auto', opacity: 1 }}
+                      exit={{ width: 0, opacity: 0 }}
+                      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                      className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap overflow-hidden"
+                    >
+                      {m.label}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </button>
             ))}
-            <div className="w-[1px] h-4 bg-white/10 mx-2" />
+            <div className="w-[1px] h-4 bg-white/10 mx-2 shrink-0" />
             <button 
               onClick={() => setActiveMode(activeMode === 'profile' ? 'default' : 'profile')} 
-              className={`w-7 h-7 rounded-lg overflow-hidden border transition-colors no-drag ${
+              className={`w-7 h-7 rounded-lg overflow-hidden border transition-colors no-drag shrink-0 ${
                 activeMode === 'profile' ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-white/10 hover:border-white/30'
               }`}
             >

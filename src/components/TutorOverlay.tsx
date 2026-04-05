@@ -116,10 +116,10 @@ export const TutorOverlay = ({ onExit }: { onExit: () => void }) => {
   return (
     <div className="h-screen w-screen bg-transparent relative no-drag overflow-hidden flex flex-col items-center">
       {/* HUD Header */}
-      <div className="absolute top-6 left-10 z-50 flex items-center space-x-3 pointer-events-auto"
+      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex items-center space-x-3 pointer-events-auto shrink-0"
            onMouseEnter={() => window.api?.setIgnoreMouse(false)}
            onMouseLeave={() => window.api?.setIgnoreMouse(true)}>
-        <div className="flex items-center space-x-3 bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 ">
+        <div className="flex items-center space-x-3 bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 shadow-2xl">
           <div className="relative flex items-center justify-center">
             {loading ? (
               <div className="w-2.5 h-2.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -141,7 +141,7 @@ export const TutorOverlay = ({ onExit }: { onExit: () => void }) => {
         </div>
 
         {annotations.length > 0 && (
-          <div className="flex items-center bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl p-1 ">
+          <div className="flex items-center bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl p-1 shadow-2xl">
             <button 
               onClick={prevStep}
               disabled={currentStep <= 1}
@@ -168,7 +168,7 @@ export const TutorOverlay = ({ onExit }: { onExit: () => void }) => {
             window.api?.setIgnoreMouse(false)
             onExit()
           }}
-          className="bg-white text-black font-black uppercase text-[11px] tracking-[0.2em] px-8 py-3.5 rounded-2xl hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-all  flex items-center space-x-3"
+          className="bg-white text-black font-black uppercase text-[11px] tracking-[0.2em] px-8 py-3.5 rounded-2xl hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-all flex items-center space-x-3 shadow-2xl"
         >
           <span>End Session</span>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
