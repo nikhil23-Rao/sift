@@ -1,771 +1,127 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Tldraw } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { auth, googleProvider, db } from './firebase'
+import { doc, setDoc } from 'firebase/firestore'
+import { db } from './firebase'
 import { motion, AnimatePresence } from 'framer-motion'
-import { GoogleGenerativeAI } from '@google/generative-ai'
-import ReactMarkdown from 'react-markdown'
-import remarkMath from 'remark-math'
-import rehypeKatex from 'rehype-katex'
 
-// --- Types ---
-type ActiveMode = 'default' | 'text-sync' | 'video-summary' | 'drawing' | 'napkin-sketch' | 'tutor' | 'recording' | 'profile' | 'problem-assistant'
-type StudentStatus = 'college' | 'highschool' | 'none'
+import { Icons } from './components/Icons'
+import { AuthView } from './components/AuthView'
+import { OnboardingView } from './components/OnboardingView'
+import { DefaultView } from './components/DefaultView'
+import { ProfileView } from './components/ProfileView'
+import { ProblemAssistantView } from './components/ProblemAssistantView'
+import { TutorOverlay } from './components/TutorOverlay'
+import SearchMode from './components/SearchMode'
 
-interface UserData {
-  uid: string;
-  email: string;
-  displayName: string;
-  photoURL: string;
-  onboarded: boolean;
-  status: StudentStatus;
-  school: string;
-  gradYear: string;
-  agreedToTerms: boolean;
-}
-
-const US_COLLEGES = [
-  "Harvard University", "Stanford University", "MIT", "UC Berkeley", "Yale University",
-  "Princeton University", "Columbia University", "UPenn", "Cornell University", "UCLA",
-  "University of Michigan", "NYU", "Duke University", "Carnegie Mellon", "Georgia Tech",
-  "UT Austin", "University of Washington", "USC", "University of Chicago", "Northwestern University"
-]
-
-// --- Icons ---
-const Icons = {
-  DragHandle: () => (
-    <svg className="w-4 h-4 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
-  ),
-  Default: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-  ),
-  TextSync: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-  ),
-  Video: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-  ),
-  Board: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-  ),
-  Pencil: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-  ),
-  Tutor: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
-  ),
-  Recording: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-  ),
-  Problem: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-  ),
-  Google: () => (
-    <svg className="w-5 h-5" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
-  )
-}
-
-// --- Auth Component ---
-const AuthView = () => {
-  const [loading, setLoading] = useState(false)
-  const handleSignIn = async () => {
-    setLoading(true)
-    try { await signInWithPopup(auth, googleProvider) } 
-    catch (e) { console.error("Sign-in error:", e) } 
-    finally { setLoading(false) }
-  }
-  return (
-    <div className="flex items-center justify-center h-full w-full p-8">
-      <div className="relative w-full max-sm liquid-glass rounded-[2.5rem] p-10 flex flex-col items-center text-center drag ">
-        <div className="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center text-white mb-8 shadow-[0_0_30px_rgba(59,130,246,0.5)]"><svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg></div>
-        <h1 className="text-white text-3xl font-bold mb-2 tracking-tight">Sift HUD</h1>
-        <p className="text-white/40 text-sm mb-10 leading-relaxed font-medium">Please sign in to continue.</p>
-        <button onClick={handleSignIn} disabled={loading} className="w-full bg-white text-black font-bold py-4 rounded-2xl flex items-center justify-center space-x-3 transition-all hover:scale-[1.02] active:scale-[0.98]  disabled:opacity-50 no-drag"><Icons.Google /><span>{loading ? 'Connecting...' : 'Sign in with Google'}</span></button>
-      </div>
-    </div>
-  )
-}
-
-// --- Onboarding Component ---
-const OnboardingView = ({ user, onComplete }: { user: User, onComplete: (data: any) => Promise<void> }) => {
-  const [step, setStep] = useState(1)
-  const [isFinishing, setIsFinishing] = useState(false)
-  const [formData, setFormData] = useState({
-    displayName: user.displayName || '',
-    status: 'college' as StudentStatus,
-    school: '',
-    gradYear: '2026',
-    agreedToTerms: false
-  })
-  const [suggestions, setSuggestions] = useState<string[]>([])
-
-  const nextStep = () => setStep(s => s + 1)
-  const prevStep = () => setStep(s => s - 1)
-
-  const handleSchoolChange = (val: string) => {
-    setFormData({ ...formData, school: val })
-    if (val.length > 1 && formData.status === 'college') {
-      const filtered = US_COLLEGES.filter(c => c.toLowerCase().includes(val.toLowerCase())).slice(0, 5)
-      setSuggestions(filtered)
-    } else {
-      setSuggestions([])
-    }
-  }
-
-  const handleFinish = async () => {
-    if (isFinishing) return
-    setIsFinishing(true)
-    try { await onComplete(formData) } 
-    catch (e: any) { alert(`Error: ${e.message}`) } 
-    finally { setIsFinishing(false) }
-  }
-
-  const variants = {
-    enter: (direction: number) => ({ x: direction > 0 ? 50 : -50, opacity: 0 }),
-    center: { x: 0, opacity: 1 },
-    exit: (direction: number) => ({ x: direction < 0 ? 50 : -50, opacity: 0 })
-  }
-
-  return (
-    <div className="flex items-center justify-center h-full w-full p-8">
-      <div className="relative w-full max-w-md liquid-glass rounded-[2.5rem] p-10 flex flex-col drag min-h-[480px] ">
-        <div className="flex space-x-2 mb-8 no-drag">
-          {[1, 2, 3].map(i => ( <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-500 ${step >= i ? 'bg-blue-500 ' : 'bg-white/10'}`} /> ))}
-        </div>
-
-        <div className="flex-1 flex flex-col justify-center overflow-hidden">
-          <AnimatePresence mode="wait" custom={step}>
-            {step === 1 && (
-              <motion.div key="step1" custom={1} variants={variants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.3 }} className="space-y-6 no-drag text-center">
-                <h2 className="text-white text-2xl font-bold tracking-tight">Confirm Profile</h2>
-                <div className="flex flex-col items-center space-y-4">
-                  <img src={user.photoURL || ''} alt="" className="w-24 h-24 rounded-[2rem] border-2 border-white/10 " />
-                  <div className="w-full text-left space-y-1.5">
-                    <label className="text-white/20 text-[10px] font-black uppercase tracking-widest ml-1">Full Name</label>
-                    <input type="text" value={formData.displayName} onChange={e => setFormData({...formData, displayName: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-blue-500/50 transition-colors" />
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {step === 2 && (
-              <motion.div key="step2" custom={1} variants={variants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.3 }} className="space-y-5 no-drag">
-                <div className="text-center"><h2 className="text-white text-2xl font-bold tracking-tight">Your Status</h2></div>
-                <div className="flex p-1 bg-white/5 rounded-2xl border border-white/10">
-                  {(['college', 'highschool', 'none'] as const).map(s => (
-                    <button key={s} onClick={() => setFormData({...formData, status: s})} className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${formData.status === s ? 'bg-white text-black ' : 'text-white/40 hover:text-white/60'}`}>
-                      {s === 'none' ? 'Not Student' : s}
-                    </button>
-                  ))}
-                </div>
-                {formData.status !== 'none' && (
-                  <div className="space-y-4">
-                    <div className="space-y-1.5 relative">
-                      <label className="text-white/20 text-[10px] font-black uppercase tracking-widest ml-1">{formData.status === 'college' ? 'College Name' : 'High School Name'}</label>
-                      <input type="text" value={formData.school} onChange={e => handleSchoolChange(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-blue-500/50 transition-colors" placeholder="Search school..." />
-                      {suggestions.length > 0 && (
-                        <div className="absolute top-full left-0 w-full mt-2 bg-zinc-900 border border-white/10 rounded-2xl overflow-hidden  z-50">
-                          {suggestions.map(s => (
-                            <button key={s} onClick={() => { setFormData({...formData, school: s}); setSuggestions([]); }} className="w-full px-5 py-3 text-left text-sm text-white/70 hover:bg-white/5 hover:text-white transition-colors">{s}</button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-white/20 text-[10px] font-black uppercase tracking-widest ml-1">Graduation Year</label>
-                      <select value={formData.gradYear} onChange={e => setFormData({...formData, gradYear: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white appearance-none focus:outline-none focus:border-blue-500/50 transition-colors">
-                        {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => <option key={y} value={y} className="bg-zinc-900">{y}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {step === 3 && (
-              <motion.div key="step3" custom={1} variants={variants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.3 }} className="space-y-6 no-drag text-center">
-                <h2 className="text-white text-2xl font-bold tracking-tight">Final Step</h2>
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-[11px] text-white/30 text-left leading-relaxed font-medium">By clicking finish, you agree to the Sift HUD terms.</div>
-                <label className="flex items-center space-x-3 cursor-pointer group p-4 bg-white/[0.02] rounded-2xl border border-white/5">
-                  <input type="checkbox" checked={formData.agreedToTerms} onChange={e => setFormData({...formData, agreedToTerms: e.target.checked})} className="w-6 h-6 rounded-lg bg-white/5 border-2 border-white/10 checked:bg-blue-500 checked:border-blue-500 appearance-none transition-all cursor-pointer" />
-                  <span className="text-white/60 text-sm font-semibold group-hover:text-white transition-colors">I accept the terms</span>
-                </label>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        <div className="flex space-x-4 mt-8 no-drag">
-          {step > 1 && <button onClick={prevStep} className="flex-1 bg-white/5 hover:bg-white/10 text-white font-bold py-4 rounded-2xl transition-all uppercase text-[10px] tracking-widest border border-white/5">Back</button>}
-          <button disabled={(step === 3 && !formData.agreedToTerms) || isFinishing} onClick={() => step === 3 ? handleFinish() : nextStep()} className="flex-[2] bg-white text-black font-bold py-4 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] uppercase text-[10px] tracking-widest  disabled:opacity-30">
-            {isFinishing ? 'Saving...' : step === 3 ? 'Finish Setup' : 'Continue'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// --- HUD Views ---
-const DefaultView = ({ onSelectMode }: { onSelectMode: (mode: ActiveMode) => void }) => (
-  <div className="space-y-2 p-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-    <div className="px-4 py-2 text-[11px] font-bold text-white/30 uppercase tracking-[0.2em]">Quick Commands</div>
-    {[
-      { key: 'A', label: 'Problem Assistant', desc: 'Solve anything on your screen', mode: 'problem-assistant' as ActiveMode },
-      { key: 'T', label: 'AI Tutor', desc: 'AI step-by-step screen annotations', mode: 'tutor' as ActiveMode },
-      { key: 'W', label: 'Whiteboard', desc: 'Internal canvas for focused notes', mode: 'drawing' as ActiveMode },
-      { key: 'D', label: 'Napkin Sketch', desc: 'Draw directly over other apps', mode: 'napkin-sketch' as ActiveMode },
-      { key: 'S', label: 'Summarize Video', desc: 'Generate AI notes from URL', mode: 'video-summary' as ActiveMode },
-    ].map((item) => (
-      <div 
-        key={item.key} 
-        onClick={() => onSelectMode(item.mode)}
-        className="flex items-center justify-between px-4 py-3 hover:bg-white/[0.04] rounded-xl cursor-pointer group transition-all no-drag border border-transparent hover:border-white/5"
-      >
-        <div className="flex items-center space-x-4">
-          <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-white/40 font-bold uppercase text-[10px] group-hover:bg-blue-500/20 group-hover:text-blue-400 transition-colors">
-            {item.key}
-          </div>
-          <div>
-            <p className="text-white/90 font-medium text-sm">{item.label}</p>
-            <p className="text-white/30 text-[11px]">{item.desc}</p>
-          </div>
-        </div>
-        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <kbd className="px-1.5 py-0.5 bg-white/10 text-white/60 text-[10px] rounded border border-white/10">⌘</kbd>
-          {item.key === 'A' && <kbd className="px-1.5 py-0.5 bg-white/10 text-white/60 text-[10px] rounded border border-white/10">⇧</kbd>}
-          <kbd className="px-1.5 py-0.5 bg-white/10 text-white/60 text-[10px] rounded border border-white/10">{item.key}</kbd>
-        </div>
-      </div>
-    ))}
-  </div>
-)
-
-const ProfileView = ({ userData }: { userData: UserData }) => (
-  <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 no-drag h-full">
-    <div className="flex items-center space-x-6">
-      <img src={userData.photoURL} alt="" className="w-24 h-24 rounded-[2.5rem] border-4 border-white/10 " />
-      <div className="space-y-1">
-        <h2 className="text-white text-3xl font-bold tracking-tight">{userData.displayName}</h2>
-        <p className="text-white/40 font-medium">{userData.email}</p>
-      </div>
-    </div>
-    <div className="grid grid-cols-2 gap-4">
-      <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-1">
-        <p className="text-white/20 text-[10px] font-black uppercase tracking-widest">Institution</p>
-        <p className="text-white font-semibold text-lg">{userData.school || 'N/A'}</p>
-      </div>
-      <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-1">
-        <p className="text-white/20 text-[10px] font-black uppercase tracking-widest">Graduation</p>
-        <p className="text-white font-semibold text-lg">{userData.gradYear || 'N/A'}</p>
-      </div>
-    </div>
-    <button onClick={() => signOut(auth)} className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold py-4 rounded-2xl border border-red-500/20 transition-all uppercase text-xs tracking-widest">Sign Out</button>
-  </div>
-)
-
-const ProblemAssistantView = () => {
-  const [loading, setLoading] = useState(false)
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant', content: string }[]>([])
-  const [followUp, setFollowUp] = useState('')
-  const [chat, setChat] = useState<any>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
-
-  const captureAndAnalyze = async () => {
-    setLoading(true)
-    setIsStreaming(true)
-    setMessages([{ role: 'assistant', content: '' }])
-    
-    try {
-      if (!window.api?.captureScreen) {
-        throw new Error("Screen capture API not found. Please restart the app.")
-      }
-      const screenshot = await window.api.captureScreen()
-      const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY)
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" })
-
-      const base64Data = screenshot.split(',')[1]
-
-      const result = await model.generateContentStream([
-        "You are a helpful problem-solving assistant. Look at this screen and help the user with any problems, questions, or tasks visible. Provide clear, concise, and accurate solutions using proper markdown formatting.",
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: "image/png"
-          }
-        }
-      ])
-      
-      let fullText = ''
-      for await (const chunk of result.stream) {
-        const chunkText = chunk.text()
-        fullText += chunkText
-        setMessages([{ role: 'assistant', content: fullText }])
-      }
-      
-      const newChat = model.startChat({
-        history: [
-          { role: "user", parts: [{ text: "Help me with my screen." }] },
-          { role: "model", parts: [{ text: fullText }] },
-        ],
-      })
-      setChat(newChat)
-      
-      window.api.resizeWindow(700, 600)
-    } catch (error: any) {
-      console.error("AI Error:", error)
-      setMessages([{ role: 'assistant', content: `Error: ${error.message || 'I couldn\'t analyze the screen'}.` }])
-    } finally {
-      setLoading(false)
-      setIsStreaming(false)
-    }
-  }
-
-  const handleFollowUp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!followUp.trim() || !chat || loading) return
-    
-    const userMessage = followUp
-    setFollowUp('')
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }, { role: 'assistant', content: '' }])
-    setLoading(true)
-    setIsStreaming(true)
-    
-    try {
-      const result = await chat.sendMessageStream(userMessage)
-      let fullText = ''
-      for await (const chunk of result.stream) {
-        const chunkText = chunk.text()
-        fullText += chunkText
-        setMessages(prev => {
-          const updated = [...prev]
-          updated[updated.length - 1] = { role: 'assistant', content: fullText }
-          return updated
-        })
-      }
-    } catch (error: any) {
-      console.error("Follow-up error:", error)
-      setMessages(prev => {
-        const updated = [...prev]
-        updated[updated.length - 1] = { role: 'assistant', content: "Sorry, I encountered an error processing your request." }
-        return updated
-      })
-    } finally {
-      setLoading(false)
-      setIsStreaming(false)
-    }
-  }
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [messages, loading])
-
-  useEffect(() => {
-    captureAndAnalyze()
-  }, [])
-
-  return (
-    <div className="flex flex-col h-full p-4 space-y-4 no-drag max-h-[500px]">
-      <div 
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar flex flex-col"
-      >
-        {messages.length === 0 && loading && (
-          <div className="flex flex-col items-center justify-center h-full space-y-4 animate-pulse py-12">
-            <div className="w-12 h-12 bg-blue-500/20 rounded-2xl flex items-center justify-center">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-            <p className="text-white/40 text-xs font-bold uppercase tracking-widest">Scanning Screen...</p>
-          </div>
-        )}
-        
-        {messages.map((msg, i) => {
-          const isLast = i === messages.length - 1;
-          const showCursor = isLast && isStreaming;
-
-          return (msg.content !== '' || (loading && i === messages.length - 1)) ? (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} w-full mb-2`}
-            >
-              <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${
-                msg.role === 'user' 
-                  ? 'bg-blue-600 text-white rounded-tr-none' 
-                  : 'bg-white/10 text-white/90 rounded-tl-none border border-white/5'
-              }`}>
-                {msg.role === 'assistant' ? (
-                  <div className="text-white/90 space-y-2">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkMath]}
-                      rehypePlugins={[rehypeKatex]}
-                      components={{
-                        p: ({node, ...props}) => <p className="mb-2 last:mb-0 leading-relaxed inline" {...props} />,
-                        h1: ({node, ...props}) => <h1 className="text-lg font-bold mb-2 mt-4 first:mt-0 text-blue-400" {...props} />,
-                        h2: ({node, ...props}) => <h2 className="text-md font-bold mb-1 mt-3 first:mt-0 text-blue-300" {...props} />,
-                        ul: ({node, ...props}) => <ul className="list-disc ml-4 mb-2 space-y-1" {...props} />,
-                        ol: ({node, ...props}) => <ol className="list-decimal ml-4 mb-2 space-y-1" {...props} />,
-                        li: ({node, ...props}) => <li className="mb-0.5" {...props} />,
-                        code: ({node, inline, className, children, ...props}: any) => {
-                          return inline ? (
-                            <code className="bg-white/10 px-1 py-0.5 rounded text-blue-300 font-mono text-[12px]" {...props}>{children}</code>
-                          ) : (
-                            <pre className="bg-black/40 p-3 rounded-xl overflow-x-auto my-2 border border-white/5 font-mono text-[12px] text-blue-200">
-                              <code {...props}>{children}</code>
-                            </pre>
-                          )
-                        },
-                        blockquote: ({node, ...props}) => <blockquote className="border-l-2 border-blue-500/50 pl-3 italic text-white/60 my-2" {...props} />,
-                        strong: ({node, ...props}) => <strong className="font-bold text-blue-400" {...props} />,
-                      }}
-                    >
-                      {msg.content}
-                    </ReactMarkdown>
-                    {showCursor && (
-                      <motion.span 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: [0, 1, 0] }}
-                        transition={{ repeat: Infinity, duration: 0.8 }}
-                        className="inline-block w-1.5 h-4 bg-blue-400 ml-1 translate-y-0.5"
-                      />
-                    )}
-                  </div>
-                ) : (
-                  msg.content
-                )}
-              </div>
-            </motion.div>
-          ) : null
-        })}
-      </div>
-
-      <form onSubmit={handleFollowUp} className="relative flex items-center mt-auto">
-        <input 
-          type="text" 
-          value={followUp}
-          onChange={e => setFollowUp(e.target.value)}
-          placeholder="Ask a follow-up..."
-          className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50 transition-colors pr-12"
-        />
-        <button 
-          type="submit"
-          disabled={loading || !followUp.trim() || !chat}
-          className="absolute right-1.5 p-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:bg-white/10"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-        </button>
-      </form>
-    </div>
-  )
-}
-
-
-const TutorOverlay = ({ onExit }: { onExit: () => void }) => {
-  const [loading, setLoading] = useState(false)
-  const [status, setStatus] = useState('Initializing...')
-  const [annotations, setAnnotations] = useState<any[]>([])
-  const [currentStep, setCurrentStep] = useState(1)
-  const [streamingText, setStreamingText] = useState('')
-
-  const analyzeAndAnnotate = async () => {
-    if (loading) return
-    setLoading(true)
-    setStatus('Capturing screen...')
-    setStreamingText('')
-    
-    try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY
-      if (!apiKey) throw new Error("Gemini API Key is missing in .env")
-      if (!window.api?.captureScreen) throw new Error("Capture API missing")
-      
-      const screenshot = await window.api.captureScreen()
-      setStatus('AI is analyzing...')
-      
-      const genAI = new GoogleGenerativeAI(apiKey)
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.5-pro",
-      })
-
-      const base64Data = screenshot.split(',')[1]
-      const width = window.screen.width
-      const height = window.screen.height
-
-      const prompt = `
-        You are an expert AI Tutor. Look at this screenshot and help the user by providing logical, step-by-step text annotations directly on their screen to solve the problem or explain the content.
-        
-        Analyze the problem visible in the image. Identify key elements and text.
-        
-        IMPORTANT: Your response must be a JSON object with an "annotations" key containing an array of annotation objects.
-        The annotations MUST be in the logical order they should be presented to the student (Step 1, then Step 2, etc.).
-        
-        Placement Rules:
-        - DO NOT cover the central problem or question.
-        - Distribute annotations across the LEFT and RIGHT margins of the screen.
-        - Alternate sides: Step 1 on the left, Step 2 on the right, Step 3 on the left, etc.
-        - For LEFT margin: set x between 50 and 100.
-        - For RIGHT margin: set x between ${width - 400} and ${width - 350}.
-        - Vertical Position: Keep y consistent for all steps, between 150 and 300, to ensure they are always in the upper viewing area.
-        - Screen size: ${width}x${height}.
-
-        Required JSON Structure:
-        {
-          "annotations": [
-            {
-              "type": "post-it" | "speech-bubble" | "label",
-              "x": number,
-              "y": number,
-              "content": "Step-by-step explanation here...",
-              "color": "blue" | "green" | "pink" | "purple" | "white",
-              "step_number": number
-            }
-          ]
-        }
-      `
-
-      const result = await model.generateContentStream([
-        prompt,
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: "image/png"
-          }
-        }
-      ])
-      
-      let fullText = ''
-      for await (const chunk of result.stream) {
-        const chunkText = chunk.text()
-        fullText += chunkText
-        setStreamingText(fullText)
-      }
-      
-      console.log("AI Tutor Raw Response:", fullText)
-
-      // Clean up markdown if AI wrapped JSON in ```json ... ```
-      const jsonMatch = fullText.match(/\{[\s\S]*\}/)
-      const cleanJson = jsonMatch ? jsonMatch[0] : fullText
-
-      try {
-        const data = JSON.parse(cleanJson)
-        const items = data.annotations || []
-        
-        if (items.length > 0) {
-          setAnnotations(items)
-          setCurrentStep(1)
-          setStatus('Guidance Active')
-          window.api?.setIgnoreMouse(true)
-        } else {
-          setStatus('AI generated no guidance')
-        }
-      } catch (parseError) {
-        console.error("JSON Parse Error:", parseError)
-        setStatus('AI response malformed')
-      }
-    } catch (error: any) {
-      console.error("Tutor AI Error:", error)
-      setStatus(`Error: ${error.message || 'Tutoring failed'}`)
-    } finally {
-      setLoading(false)
-      setStreamingText('')
-    }
-  }
-
-  useEffect(() => {
-    analyzeAndAnnotate()
-  }, [])
-
-  const nextStep = () => {
-    if (currentStep < annotations.length) {
-      setCurrentStep(prev => prev + 1)
-    }
-  }
-
-  const prevStep = () => {
-    if (currentStep > 1) {
-      setCurrentStep(prev => prev - 1)
-    }
-  }
-
-  return (
-    <div className="h-screen w-screen bg-transparent relative no-drag overflow-hidden flex flex-col items-center">
-      {/* HUD Header */}
-      <div className="absolute top-6 left-10 z-50 flex items-center space-x-3 pointer-events-auto"
-           onMouseEnter={() => window.api?.setIgnoreMouse(false)}
-           onMouseLeave={() => window.api?.setIgnoreMouse(true)}>
-        <div className="flex items-center space-x-3 bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 ">
-          <div className="relative flex items-center justify-center">
-            {loading ? (
-              <div className="w-2.5 h-2.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
-            )}
-          </div>
-          <span className="text-white text-[11px] font-black uppercase tracking-[0.2em]">AI Tutor</span>
-          <div className="w-[1px] h-3 bg-white/10 mx-2" />
-          <span className="text-white/40 text-[10px] font-bold uppercase tracking-widest">{status}</span>
-          {annotations.length > 0 && (
-            <>
-              <div className="w-[1px] h-3 bg-white/10 mx-1" />
-              <div className="px-3 py-1 bg-blue-500/10 rounded-lg">
-                <span className="text-blue-400 text-[10px] font-black uppercase tracking-widest">Step {currentStep} / {annotations.length}</span>
-              </div>
-            </>
-          )}
-        </div>
-
-        {annotations.length > 0 && (
-          <div className="flex items-center bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl p-1 ">
-            <button 
-              onClick={prevStep}
-              disabled={currentStep <= 1}
-              className="p-3 text-white/40 hover:text-white hover:bg-white/5 rounded-xl disabled:opacity-20 transition-all"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            
-            <div className="w-[1px] h-4 bg-white/10 mx-1" />
-            
-            <button 
-              onClick={nextStep}
-              disabled={currentStep >= annotations.length}
-              className="flex items-center space-x-2 px-6 py-2.5 bg-blue-600 text-white font-black uppercase text-[10px] tracking-[0.2em] rounded-xl hover:bg-blue-500 hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(59,130,246,0.3)] disabled:opacity-30 disabled:scale-100 disabled:bg-zinc-800"
-            >
-              <span>Next Step</span>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
-            </button>
-          </div>
-        )}
-
-        <button 
-          onClick={() => {
-            window.api?.setIgnoreMouse(false)
-            onExit()
-          }}
-          className="bg-white text-black font-black uppercase text-[11px] tracking-[0.2em] px-8 py-3.5 rounded-2xl hover:bg-zinc-200 hover:scale-105 active:scale-95 transition-all  flex items-center space-x-3"
-        >
-          <span>End Session</span>
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-
-      {/* Thought Streaming Overlay */}
-      <AnimatePresence>
-        {loading && streamingText && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="absolute bottom-10 right-10 z-50 w-80 max-h-40 liquid-glass p-6 rounded-3xl border border-white/10 pointer-events-none overflow-hidden"
-          >
-            <div className="flex items-center space-x-2 mb-3">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">AI Thought Stream</span>
-            </div>
-            <div className="text-white/60 text-xs font-mono line-clamp-4">
-              {streamingText}
-              <motion.span 
-                animate={{ opacity: [0, 1, 0] }}
-                transition={{ repeat: Infinity, duration: 0.8 }}
-                className="inline-block w-1.5 h-3 bg-blue-500 ml-1"
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Annotations Overlay */}
-      <div className="absolute inset-0 pointer-events-none">
-        <AnimatePresence mode="wait">
-          {annotations.length > 0 && annotations[currentStep - 1] && (
-            <motion.div
-              key={currentStep}
-              initial={{ opacity: 0, scale: 0.9, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: -30 }}
-              transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-              style={{ 
-                position: 'absolute', 
-                left: annotations[currentStep - 1].x, 
-                top: annotations[currentStep - 1].y 
-              }}
-              className="z-40"
-            >
-              {(() => {
-                const ann = annotations[currentStep - 1];
-                const colors: any = {
-                  blue: 'border-blue-500/50 text-blue-50',
-                  green: 'border-emerald-500/50 text-emerald-50',
-                  pink: 'border-pink-500/50 text-pink-50',
-                  purple: 'border-purple-500/50 text-purple-50',
-                  white: 'border-white/20 text-white'
-                };
-                
-                return (
-                  <>
-                    {ann.type === 'post-it' && (
-                      <div className={`liquid-glass w-80 p-6 rounded-[2.5rem] border-2 font-sans text-base leading-relaxed  ${colors[ann.color] || colors.white}`}>
-                        <div className="flex items-center space-x-2 mb-3">
-                          <div className="px-2 py-0.5 bg-white/10 rounded-md">
-                            <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-70 text-inherit">Step {currentStep}</span>
-                          </div>
-                        </div>
-                        {ann.content}
-                      </div>
-                    )}
-                    {ann.type === 'speech-bubble' && (
-                      <div className={`liquid-glass relative px-6 py-4 rounded-3xl  border-2 max-w-xs text-base font-bold ${colors[ann.color] || colors.blue}`}>
-                        {ann.content}
-                        <div className="absolute -bottom-2 left-6 w-4 h-4 rotate-45 border-r-2 border-b-2 border-inherit bg-inherit" />
-                      </div>
-                    )}
-                    {ann.type === 'label' && (
-                      <div className={`liquid-glass px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border-2  ${colors[ann.color] || colors.white}`}>
-                        {ann.content}
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-  )
-}
-
-
+import { useAuth } from './hooks/useAuth'
+import { ActiveMode, UserData } from './types'
 
 const App = () => {
-  const [user, setUser] = useState<User | null>(null)
-  const [userData, setUserData] = useState<UserData | null>(null)
-  const [authLoading, setAuthLoading] = useState(true)
+  const { user, userData, setUserData, authLoading } = useAuth()
   const [activeMode, setActiveMode] = useState<ActiveMode>('default')
   const [searchValue, setSearchValue] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showCommands, setShowCommands] = useState(false)
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const commands = [
+    { id: '@reddit', label: 'Reddit', icon: '🌐', color: 'from-orange-500/20' },
+    { id: '@youtube', label: 'YouTube', icon: '📺', color: 'from-red-500/20' },
+    { id: '@khanacademy', label: 'Khan Academy', icon: '🎓', color: 'from-green-500/20' },
+    { id: '@web', label: 'Web Search', icon: '🔍', color: 'from-blue-500/20' },
+    { id: '@deepsearch', label: 'Deep Search', icon: '🧠', color: 'from-purple-500/20' },
+  ]
+
+  const quickActions = [
+    { id: '/solve', label: 'Problem Solver', mode: 'problem-assistant', icon: <Icons.Problem /> },
+    { id: '/tutor', label: 'AI Tutor', mode: 'tutor', icon: <Icons.Tutor /> },
+    { id: '/board', label: 'Whiteboard', mode: 'drawing', icon: <Icons.Board /> },
+    { id: '/sketch', label: 'Napkin Sketch', mode: 'napkin-sketch', icon: <Icons.Pencil /> },
+    { id: '/profile', label: 'User Profile', mode: 'profile', icon: <div className="w-4 h-4 rounded-full overflow-hidden border border-white/20"><img src={user?.photoURL || ''} className="w-full h-full object-cover" /></div> },
+  ]
+
+  const activeCommand = commands.find(c => searchValue.toLowerCase().includes(c.id))
+  const isResearchMode = !!activeCommand
+
+  const [showQuickActions, setShowQuickActions] = useState(false)
+  const [selectedActionIndex, setSelectedActionIndex] = useState(0)
+
   useEffect(() => {
-    return onAuthStateChanged(auth, async (u) => {
-      setUser(u)
-      if (u) {
-        try {
-          const docSnap = await getDoc(doc(db, 'users', u.uid))
-          if (docSnap.exists()) setUserData(docSnap.data() as UserData)
-        } catch (e) { console.error("Fetch Error:", e) }
-      } else { setUserData(null) }
-      setAuthLoading(false)
-    })
-  }, [])
+    if (searchValue.endsWith('@')) {
+      setShowCommands(true)
+      setShowQuickActions(false)
+      setSelectedCommandIndex(0)
+    } else if (!searchValue.includes('@')) {
+      setShowCommands(false)
+    }
+
+    if (searchValue.endsWith('/')) {
+      setShowQuickActions(true)
+      setShowCommands(false)
+      setSelectedActionIndex(0)
+    } else if (!searchValue.includes('/')) {
+      setShowQuickActions(false)
+    }
+  }, [searchValue])
+
+  const handleCommandSelect = (cmd: string) => {
+    const lastAtIdx = searchValue.lastIndexOf('@')
+    const newValue = searchValue.slice(0, lastAtIdx) + cmd + ' '
+    setSearchValue(newValue)
+    setShowCommands(false)
+    inputRef.current?.focus()
+  }
+
+  const handleActionSelect = (mode: string) => {
+    setActiveMode(mode as ActiveMode)
+    setSearchValue('')
+    setShowQuickActions(false)
+  }
 
   useEffect(() => {
     if (userData?.onboarded && activeMode !== 'profile') inputRef.current?.focus()
   }, [userData, activeMode])
+
+  const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showCommands) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedCommandIndex(prev => (prev + 1) % commands.length)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedCommandIndex(prev => (prev - 1 + commands.length) % commands.length)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        handleCommandSelect(commands[selectedCommandIndex].id)
+      } else if (e.key === 'Escape') {
+        setShowCommands(false)
+      }
+      return
+    }
+
+    if (showQuickActions) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedActionIndex(prev => (prev + 1) % quickActions.length)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedActionIndex(prev => (prev - 1 + quickActions.length) % quickActions.length)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        handleActionSelect(quickActions[selectedActionIndex].mode)
+      } else if (e.key === 'Escape') {
+        setShowQuickActions(false)
+      }
+      return
+    }
+
+    if (e.key === 'Enter' && searchValue.trim()) {
+      setSearchQuery(searchValue)
+      setActiveMode('search')
+    }
+  }
 
   useEffect(() => {
     if (!userData?.onboarded) return
@@ -773,7 +129,6 @@ const App = () => {
     const isCollapsed = activeMode === 'default' && searchValue === ''
     
     if (activeMode === 'napkin-sketch' || activeMode === 'tutor') {
-      // Full horizontal width, full vertical height
       const width = window.screen.width
       const height = window.screen.height
       window.api?.resizeWindow(width, height)
@@ -782,7 +137,7 @@ const App = () => {
     } else {
       if (activeMode === 'drawing') window.api?.resizeWindow(900, 650)
       else if (activeMode === 'profile') window.api?.resizeWindow(700, 550)
-      else if (activeMode === 'problem-assistant') window.api?.resizeWindow(700, 600)
+      else if (activeMode === 'problem-assistant' || activeMode === 'search') window.api?.resizeWindow(700, 600)
       else window.api?.resizeWindow(700, 480)
     }
   }, [activeMode, userData, searchValue])
@@ -796,7 +151,6 @@ const App = () => {
     }
     window.addEventListener('keydown', handleGlobalKeyDown)
     
-    // Listen for IPC trigger
     if (window.api?.onTriggerProblemAssistant) {
       window.api.onTriggerProblemAssistant(() => {
         setActiveMode('problem-assistant')
@@ -840,7 +194,6 @@ const App = () => {
         onMouseEnter={() => window.api?.setIgnoreMouse(false)}
         onMouseLeave={() => window.api?.setIgnoreMouse(true)}
       >
-        {/* Sleek Unified Floating Header */}
         <div className="absolute top-6 left-10 z-50 flex items-center space-x-4 pointer-events-auto">
           <div className="flex items-center space-x-3 bg-zinc-900/80 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 ">
             <div className="relative flex items-center justify-center">
@@ -894,11 +247,99 @@ const App = () => {
       >
         <div className="absolute inset-0 bg-gradient-to-tr from-white/[0.02] to-transparent pointer-events-none" />
         
-        {/* Header - Now fully draggable background */}
         {activeMode !== 'drawing' && activeMode !== 'profile' && activeMode !== 'problem-assistant' && (
-          <div className="relative flex items-center px-8 py-7">
-            <div className="mr-4 text-white/10"><Icons.DragHandle /></div>
-            <input ref={inputRef} type="text" className="w-full bg-transparent text-white text-2xl font-semibold focus:outline-none placeholder-gray/10 no-drag" style={{color:"lightgray", fontWeight:"normal"}} placeholder="What will you Sift through..." value={searchValue} onChange={e => setSearchValue(e.target.value)} autoFocus />
+          <div className="relative flex flex-col">
+            <motion.div 
+              animate={{ 
+                backgroundColor: isResearchMode ? 'rgba(59, 130, 246, 0.05)' : 'rgba(255, 255, 255, 0)'
+              }}
+              className="relative flex items-center px-8 py-7 transition-colors"
+            >
+              <div className="mr-4 text-white/10"><Icons.DragHandle /></div>
+              <input 
+                ref={inputRef} 
+                type="text" 
+                className="w-full bg-transparent text-white text-2xl font-semibold focus:outline-none placeholder-gray/10 no-drag" 
+                style={{color: isResearchMode ? '#60a5fa' : 'lightgray', fontWeight:"normal"}} 
+                placeholder="What will you Sift through..." 
+                value={searchValue} 
+                onChange={e => setSearchValue(e.target.value)} 
+                onKeyDown={handleSearch}
+                autoFocus 
+              />
+              {isResearchMode && (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="ml-4 px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-full flex items-center space-x-2"
+                >
+                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Research Mode</span>
+                  <span className="text-xs">{activeCommand?.icon}</span>
+                </motion.div>
+              )}
+            </motion.div>
+
+            <AnimatePresence>
+              {showCommands && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute top-full left-8 right-8 z-[100] mt-2 bg-zinc-900/95 backdrop-blur-3xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl no-drag"
+                >
+                  <div className="p-2 space-y-1 max-h-[320px] overflow-y-auto custom-scrollbar">
+                    <p className="px-4 py-2 text-[10px] font-black text-white/20 uppercase tracking-[0.2em] sticky top-0 bg-zinc-900/95 backdrop-blur-3xl z-10">Research Sources</p>
+                    {commands.map((cmd, index) => (
+                      <button
+                        key={cmd.id}
+                        onClick={() => handleCommandSelect(cmd.id)}
+                        onMouseEnter={() => setSelectedCommandIndex(index)}
+                        className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all group text-left ${
+                          selectedCommandIndex === index ? 'bg-white/10 ring-1 ring-white/10' : 'hover:bg-white/5'
+                        }`}
+                      >
+                        <span className={`text-xl transition-transform ${selectedCommandIndex === index ? 'scale-110' : ''}`}>{cmd.icon}</span>
+                        <div className="flex-1">
+                          <p className={`text-sm font-bold transition-colors ${selectedCommandIndex === index ? 'text-white' : 'text-white/80 group-hover:text-white'}`}>{cmd.label}</p>
+                          <p className="text-[10px] font-medium text-white/20 uppercase tracking-widest">{cmd.id}</p>
+                        </div>
+                        <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${cmd.color} transition-all ${selectedCommandIndex === index ? 'scale-125 shadow-[0_0_10px_rgba(255,255,255,0.2)]' : 'to-transparent'}`} />
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
+              {showQuickActions && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute top-full left-8 right-8 z-[100] mt-2 bg-zinc-900/95 backdrop-blur-3xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl no-drag"
+                >
+                  <div className="p-2 space-y-1 max-h-[320px] overflow-y-auto custom-scrollbar">
+                    <p className="px-4 py-2 text-[10px] font-black text-white/20 uppercase tracking-[0.2em] sticky top-0 bg-zinc-900/95 backdrop-blur-3xl z-10">Quick Actions</p>
+                    {quickActions.map((action, index) => (
+                      <button
+                        key={action.id}
+                        onClick={() => handleActionSelect(action.mode)}
+                        onMouseEnter={() => setSelectedActionIndex(index)}
+                        className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all group text-left ${
+                          selectedActionIndex === index ? 'bg-blue-500/10 ring-1 ring-blue-500/20' : 'hover:bg-white/5'
+                        }`}
+                      >
+                        <span className={`text-xl transition-transform ${selectedActionIndex === index ? 'scale-110' : ''}`}>{action.icon}</span>
+                        <div className="flex-1">
+                          <p className={`text-sm font-bold transition-colors ${selectedActionIndex === index ? 'text-white' : 'text-white/80 group-hover:text-white'}`}>{action.label}</p>
+                          <p className="text-[10px] font-medium text-white/20 uppercase tracking-widest">{action.id}</p>
+                        </div>
+                        <div className={`w-1.5 h-1.5 rounded-full bg-blue-500 transition-all ${selectedActionIndex === index ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`} />
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 
@@ -918,7 +359,6 @@ const App = () => {
           </div>
         )}
 
-        {/* Drawing Header handle */}
         {activeMode === 'drawing' && (
           <div className="absolute top-6 left-8 z-50 text-white/10"><Icons.DragHandle /></div>
         )}
@@ -935,6 +375,7 @@ const App = () => {
                 className="h-full"
               >
                 {activeMode === 'default' && <DefaultView onSelectMode={setActiveMode} />}
+                {activeMode === 'search' && <SearchMode query={searchQuery} school={userData?.school} />}
                 {activeMode === 'drawing' && <div className="h-full no-drag"><Tldraw persistenceKey="ghost-hud-canvas" inferDarkMode /></div>}
                 {activeMode === 'profile' && <ProfileView userData={userData} />}
                 {activeMode === 'problem-assistant' && <ProblemAssistantView />}
@@ -943,7 +384,6 @@ const App = () => {
           </AnimatePresence>
         </div>
 
-        {/* Draggable Footer Background */}
         <AnimatePresence>
           {activeMode !== 'problem-assistant' && !isCollapsed && (
             <motion.div 

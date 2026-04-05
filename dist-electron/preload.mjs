@@ -5,6 +5,7 @@ electron.contextBridge.exposeInMainWorld("api", {
   resizeWindow: (width, height) => electron.ipcRenderer.send("resize-window", { width, height }),
   setIgnoreMouse: (ignore) => electron.ipcRenderer.send("set-ignore-mouse", ignore),
   captureScreen: () => electron.ipcRenderer.invoke("capture-screen"),
+  studentSearch: (query, institutionName) => electron.ipcRenderer.invoke("handle-student-search", query, institutionName),
   onTriggerProblemAssistant: (callback) => {
     electron.ipcRenderer.on("trigger-problem-assistant", () => callback());
   },
