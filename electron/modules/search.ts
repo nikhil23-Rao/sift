@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { searchGoogleDrive, createDriveDocument, deleteDriveFile } from './drive';
 
 const TAVILY_API_KEY = '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';
 // Using process.env for Gemini API Key in Electron backend
@@ -13,18 +14,72 @@ interface SearchResult {
   score: number;
 }
 
-export async function handleStudentSearch(query: string, institutionName?: string) {
+export async function handleStudentSearch(query: string, institutionName?: string, googleDriveAccessToken?: string) {
   try {
     // 1. Parse @ commands and determine search strategy
     const redditMatch = query.match(/@reddit\b/i);
     const youtubeMatch = query.match(/@youtube\b/i);
     const khanMatch = query.match(/@khanacademy\b/i);
     const deepSearchMatch = query.match(/@(deepsearch|deep search|web)\b/i);
+    const driveMatch = query.match(/@drive\b/i);
+    const createMatch = query.match(/@create\b/i);
+    const deleteMatch = query.match(/@delete\b/i);
 
-    const isSpecializedSearch = redditMatch || youtubeMatch || khanMatch || deepSearchMatch;
+    const isSpecializedSearch = redditMatch || youtubeMatch || khanMatch || deepSearchMatch || driveMatch || createMatch || deleteMatch;
     
     // Clean query from @ commands
     const cleanQuery = query.replace(/@[a-zA-Z0-9-]+\b/g, '').trim();
+
+    // Handle Drive specific commands
+    if (driveMatch || createMatch || deleteMatch) {
+      if (!googleDriveAccessToken) {
+        throw new Error('Google Drive not connected. Please connect in your profile.');
+      }
+
+      try {
+        if (createMatch) {
+          const file = await createDriveDocument(cleanQuery, googleDriveAccessToken);
+          return {
+            answer: `I've created a new Google Drive document for you: **${file.name}**.`,
+            sources: [{ id: 1, title: file.name, url: file.webViewLink, favicon: file.iconLink }]
+          };
+        }
+        
+        if (deleteMatch) {
+          const files = await searchGoogleDrive(cleanQuery, googleDriveAccessToken);
+          if (files.length > 0) {
+            await deleteDriveFile(files[0].id, googleDriveAccessToken);
+            return {
+              answer: `I've found and deleted **${files[0].name}** from your Google Drive.`,
+              sources: []
+            };
+          }
+          return {
+            answer: `No files matching **${cleanQuery}** were found in your Google Drive.`,
+            sources: []
+          };
+        }
+
+        // Default Drive Search
+        const files = await searchGoogleDrive(cleanQuery, googleDriveAccessToken);
+        return {
+          answer: files.length > 0 
+            ? `Found ${files.length} files in your Google Drive related to **${cleanQuery}**:` 
+            : `No files found in your Google Drive for **${cleanQuery}**.`,
+          sources: files.map((f: any, i: number) => ({
+            id: i + 1,
+            title: f.name,
+            url: f.webViewLink,
+            favicon: f.iconLink
+          }))
+        };
+      } catch (driveError: any) {
+        if (driveError.message?.includes('invalid authentication credentials') || driveError.message?.includes('401')) {
+          throw new Error('Google Drive session expired. Please disconnect and reconnect in your profile.');
+        }
+        throw driveError;
+      }
+    }
 
     // Check if institution is relevant (contains campus keywords or institution name)
     const isInstitutionRelevant = institutionName && (

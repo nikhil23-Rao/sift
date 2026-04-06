@@ -15,32 +15,42 @@ interface Source {
 interface SearchModeProps {
   query: string;
   school?: string;
+  googleDriveAccessToken?: string;
 }
 
-const SearchMode: React.FC<SearchModeProps> = ({ query, school }) => {
+const SearchMode: React.FC<SearchModeProps> = ({ query, school, googleDriveAccessToken }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingStep, setLoadingStep] = useState(0);
   const [response, setResponse] = useState('');
   const [sources, setSources] = useState<Source[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const steps = [
-    `Searching for "${query}"...`,
-    "Gathering resources...",
-    "Synthesizing with Gemini...",
-    "Finalizing resources..."
-  ];
+  const steps = query.includes('@drive') || query.includes('@create') || query.includes('@delete') 
+    ? [
+        `Authenticating with Google...`,
+        "Accessing Drive API...",
+        query.includes('@create') ? "Creating document..." : "Scanning files...",
+        "Finalizing results..."
+      ]
+    : [
+        `Searching for "${query}"...`,
+        "Gathering resources...",
+        "Synthesizing with Gemini...",
+        "Finalizing resources..."
+      ];
 
   const getSourceStyle = (url: string) => {
     if (url.includes('reddit.com')) return 'hover:border-orange-500/50 hover:bg-orange-500/5';
     if (url.includes('youtube.com')) return 'hover:border-red-500/50 hover:bg-red-500/5';
     if (url.includes('khanacademy.org')) return 'hover:border-green-500/50 hover:bg-green-500/5';
+    if (url.includes('google.com/document') || url.includes('google.com/file')) return 'hover:border-blue-500/50 hover:bg-blue-500/5';
     return 'hover:bg-white/[0.06] hover:border-white/[0.1]';
   };
 
   const getSourceIcon = (url: string) => {
     if (url.includes('reddit.com')) return <span className="text-[10px] text-orange-500/80 font-black mr-1">R/</span>;
     if (url.includes('youtube.com')) return <span className="text-[10px] text-red-500/80 font-black mr-1">YT</span>;
+    if (url.includes('google.com/document')) return <span className="text-[10px] text-blue-500/80 font-black mr-1">GD</span>;
     return null;
   };
 
@@ -57,7 +67,7 @@ const SearchMode: React.FC<SearchModeProps> = ({ query, school }) => {
 
       try {
         // @ts-ignore - window.api is injected by preload
-        const result = await window.api.studentSearch(query, school);
+        const result = await window.api.studentSearch(query, school, googleDriveAccessToken);
         setResponse(result.answer);
         setSources(result.sources);
       } catch (err: any) {
@@ -72,7 +82,7 @@ const SearchMode: React.FC<SearchModeProps> = ({ query, school }) => {
     if (query) {
       performSearch();
     }
-  }, [query, school]);
+  }, [query, school, googleDriveAccessToken]);
 
   return (
     <div className="h-full flex flex-col p-8 pt-2 overflow-y-auto custom-scrollbar no-drag">

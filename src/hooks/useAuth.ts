@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { onAuthStateChanged, User } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, onSnapshot } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import { UserData } from '../types'
 
@@ -10,16 +10,36 @@ export const useAuth = () => {
   const [authLoading, setAuthLoading] = useState(true)
 
   useEffect(() => {
-    return onAuthStateChanged(auth, async (u) => {
+    let unsubscribeSnapshot: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
       setUser(u)
+      
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot()
+        unsubscribeSnapshot = null
+      }
+
       if (u) {
-        try {
-          const docSnap = await getDoc(doc(db, 'users', u.uid))
-          if (docSnap.exists()) setUserData(docSnap.data() as UserData)
-        } catch (e) { console.error("Fetch Error:", e) }
-      } else { setUserData(null) }
-      setAuthLoading(false)
+        unsubscribeSnapshot = onSnapshot(doc(db, 'users', u.uid), (docSnap) => {
+          if (docSnap.exists()) {
+            setUserData(docSnap.data() as UserData)
+          }
+          setAuthLoading(false)
+        }, (error) => {
+          console.error("Firestore Snapshot Error:", error)
+          setAuthLoading(false)
+        })
+      } else {
+        setUserData(null)
+        setAuthLoading(false)
+      }
     })
+
+    return () => {
+      unsubscribeAuth()
+      if (unsubscribeSnapshot) unsubscribeSnapshot()
+    }
   }, [])
 
   return { user, userData, setUserData, authLoading }

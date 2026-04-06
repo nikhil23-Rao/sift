@@ -1,8 +1,9 @@
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen, shell } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { registerShortcuts, unregisterShortcuts } from './modules/shortcuts'
 import { setupIpc } from './modules/ipc'
+import { setupDriveHandlers } from './modules/drive'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -63,6 +64,15 @@ function createWindow() {
     // Initialize modular features
     registerShortcuts(win)
     setupIpc(win)
+    setupDriveHandlers()
+
+    // Handle window open requests by opening in the default system browser
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('https:') || url.startsWith('http:')) {
+        shell.openExternal(url);
+      }
+      return { action: 'deny' };
+    });
     
     win.on('closed', () => {
       win = null

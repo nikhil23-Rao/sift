@@ -1,4 +1,4 @@
-import { globalShortcut, screen, desktopCapturer, ipcMain, app, BrowserWindow } from "electron";
+import { globalShortcut, screen, desktopCapturer, ipcMain, app, BrowserWindow, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 function registerShortcuts(win2) {
@@ -1335,17 +1335,118 @@ class GoogleGenerativeAI {
     return new GenerativeModel(this.apiKey, modelParamsFromCache, requestOptions);
   }
 }
+const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
+async function driveFetch(endpoint, token, options = {}) {
+  var _a;
+  const response = await fetch(`${DRIVE_API_BASE}${endpoint}`, {
+    ...options,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Google Drive API Error: ${((_a = error.error) == null ? void 0 : _a.message) || response.statusText}`);
+  }
+  if (response.status === 204) return null;
+  return response.json();
+}
+async function searchGoogleDrive(query, token) {
+  const q = encodeURIComponent(`(name contains '${query}' or fullText contains '${query}') and trashed = false`);
+  const fields = "files(id, name, mimeType, webViewLink, iconLink)";
+  console.log(`[Drive] Searching for: ${query}`);
+  const data = await driveFetch(`/files?q=${q}&fields=${fields}&pageSize=10`, token);
+  const files = data.files;
+  console.log(`[Drive] Found ${(files == null ? void 0 : files.length) || 0} files.`);
+  return files || [];
+}
+async function createDriveDocument(name, token) {
+  const body = {
+    name: name.endsWith(".docx") ? name.replace(".docx", "") : name,
+    mimeType: "application/vnd.google-apps.document"
+  };
+  return await driveFetch("/files?fields=id,name,mimeType,webViewLink,iconLink", token, {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+}
+async function deleteDriveFile(fileId, token) {
+  await driveFetch(`/files/${fileId}`, token, {
+    method: "DELETE"
+  });
+  return true;
+}
+function setupDriveHandlers() {
+  ipcMain.handle("search-google-drive", async (_event, query, token) => {
+    return await searchGoogleDrive(query, token);
+  });
+  ipcMain.handle("create-drive-document", async (_event, name, token) => {
+    return await createDriveDocument(name, token);
+  });
+  ipcMain.handle("delete-drive-file", async (_event, fileId, token) => {
+    return await deleteDriveFile(fileId, token);
+  });
+}
 const TAVILY_API_KEY = "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";
 const GEMINI_API_KEY = process.env.VITE_GEMINI_API_KEY || "";
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-async function handleStudentSearch(query, institutionName) {
+async function handleStudentSearch(query, institutionName, googleDriveAccessToken) {
+  var _a, _b;
   try {
     const redditMatch = query.match(/@reddit\b/i);
     const youtubeMatch = query.match(/@youtube\b/i);
     const khanMatch = query.match(/@khanacademy\b/i);
     const deepSearchMatch = query.match(/@(deepsearch|deep search|web)\b/i);
-    const isSpecializedSearch = redditMatch || youtubeMatch || khanMatch || deepSearchMatch;
+    const driveMatch = query.match(/@drive\b/i);
+    const createMatch = query.match(/@create\b/i);
+    const deleteMatch = query.match(/@delete\b/i);
+    const isSpecializedSearch = redditMatch || youtubeMatch || khanMatch || deepSearchMatch || driveMatch || createMatch || deleteMatch;
     const cleanQuery = query.replace(/@[a-zA-Z0-9-]+\b/g, "").trim();
+    if (driveMatch || createMatch || deleteMatch) {
+      if (!googleDriveAccessToken) {
+        throw new Error("Google Drive not connected. Please connect in your profile.");
+      }
+      try {
+        if (createMatch) {
+          const file = await createDriveDocument(cleanQuery, googleDriveAccessToken);
+          return {
+            answer: `I've created a new Google Drive document for you: **${file.name}**.`,
+            sources: [{ id: 1, title: file.name, url: file.webViewLink, favicon: file.iconLink }]
+          };
+        }
+        if (deleteMatch) {
+          const files2 = await searchGoogleDrive(cleanQuery, googleDriveAccessToken);
+          if (files2.length > 0) {
+            await deleteDriveFile(files2[0].id, googleDriveAccessToken);
+            return {
+              answer: `I've found and deleted **${files2[0].name}** from your Google Drive.`,
+              sources: []
+            };
+          }
+          return {
+            answer: `No files matching **${cleanQuery}** were found in your Google Drive.`,
+            sources: []
+          };
+        }
+        const files = await searchGoogleDrive(cleanQuery, googleDriveAccessToken);
+        return {
+          answer: files.length > 0 ? `Found ${files.length} files in your Google Drive related to **${cleanQuery}**:` : `No files found in your Google Drive for **${cleanQuery}**.`,
+          sources: files.map((f, i) => ({
+            id: i + 1,
+            title: f.name,
+            url: f.webViewLink,
+            favicon: f.iconLink
+          }))
+        };
+      } catch (driveError) {
+        if (((_a = driveError.message) == null ? void 0 : _a.includes("invalid authentication credentials")) || ((_b = driveError.message) == null ? void 0 : _b.includes("401"))) {
+          throw new Error("Google Drive session expired. Please disconnect and reconnect in your profile.");
+        }
+        throw driveError;
+      }
+    }
     const isInstitutionRelevant = institutionName && (cleanQuery.toLowerCase().includes(institutionName.toLowerCase()) || /\b(campus|professor|course|major|club|dorm|admissions|tuition|registrar|university|college|school|class|department)\b/i.test(cleanQuery));
     if (!isSpecializedSearch) {
       const model2 = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
@@ -1445,8 +1546,8 @@ function setupIpc(win2) {
   ipcMain.handle("capture-screen", async () => {
     return await captureScreen(win2);
   });
-  ipcMain.handle("handle-student-search", async (_event, query, institutionName) => {
-    return await handleStudentSearch(query, institutionName);
+  ipcMain.handle("handle-student-search", async (_event, query, institutionName, googleDriveAccessToken) => {
+    return await handleStudentSearch(query, institutionName, googleDriveAccessToken);
   });
 }
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
@@ -1495,6 +1596,13 @@ function createWindow() {
     }
     registerShortcuts(win);
     setupIpc(win);
+    setupDriveHandlers();
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith("https:") || url.startsWith("http:")) {
+        shell.openExternal(url);
+      }
+      return { action: "deny" };
+    });
     win.on("closed", () => {
       win = null;
     });

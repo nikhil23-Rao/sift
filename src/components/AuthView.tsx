@@ -1,13 +1,34 @@
 import React, { useState } from 'react'
-import { signInWithPopup } from 'firebase/auth'
-import { auth, googleProvider } from '../firebase'
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
+import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore'
+import { auth, googleProvider, db } from '../firebase'
 import { Icons } from './Icons'
 
 export const AuthView = () => {
   const [loading, setLoading] = useState(false)
   const handleSignIn = async () => {
     setLoading(true)
-    try { await signInWithPopup(auth, googleProvider) } 
+    try { 
+      const result = await signInWithPopup(auth, googleProvider)
+      const credential = GoogleAuthProvider.credentialFromResult(result)
+      const token = credential?.accessToken
+
+      if (token) {
+        const userRef = doc(db, 'users', result.user.uid)
+        const docSnap = await getDoc(userRef)
+        
+        if (docSnap.exists()) {
+          await updateDoc(userRef, {
+            googleDriveAccessToken: token,
+            googleDriveConnected: true
+          })
+        } else {
+          // New user creation handled by App.tsx handleOnboardingComplete usually,
+          // but we can pre-set the token here if we want.
+          // App.tsx handles the actual "onboarded" flow.
+        }
+      }
+    } 
     catch (e) { console.error("Sign-in error:", e) } 
     finally { setLoading(false) }
   }

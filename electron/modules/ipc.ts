@@ -31,7 +31,7 @@ export function setupIpc(win: BrowserWindow | null) {
     return await captureScreen(win)
   })
 
-  ipcMain.handle('handle-student-search', async (_event, query, institutionName) => {
-    return await handleStudentSearch(query, institutionName)
+  ipcMain.handle('handle-student-search', async (_event, query, institutionName, googleDriveAccessToken) => {
+    return await handleStudentSearch(query, institutionName, googleDriveAccessToken)
   })
 }

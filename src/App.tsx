@@ -27,6 +27,9 @@ const App = () => {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const commands = [
+    { id: '@drive', label: 'Google Drive', icon: '📁', color: 'from-blue-600/20' },
+    { id: '@create', label: 'Create Doc', icon: '📝', color: 'from-green-600/20' },
+    { id: '@delete', label: 'Delete File', icon: '🗑️', color: 'from-red-600/20' },
     { id: '@reddit', label: 'Reddit', icon: '🌐', color: 'from-orange-500/20' },
     { id: '@youtube', label: 'YouTube', icon: '📺', color: 'from-red-500/20' },
     { id: '@khanacademy', label: 'Khan Academy', icon: '🎓', color: 'from-green-500/20' },
@@ -411,7 +414,7 @@ const App = () => {
 
             <div className="flex-1 overflow-y-auto custom-scrollbar">
               {activeMode === 'default' && <DefaultView onSelectMode={setActiveMode} />}
-              {activeMode === 'search' && <SearchMode query={searchQuery} school={userData?.school} />}
+              {activeMode === 'search' && <SearchMode query={searchQuery} school={userData?.school} googleDriveAccessToken={userData?.googleDriveAccessToken} />}
               {activeMode === 'drawing' && <div className="h-full"><Tldraw persistenceKey="ghost-hud-canvas" inferDarkMode /></div>}
               {activeMode === 'profile' && <ProfileView userData={userData} />}
               {activeMode === 'problem-assistant' && <ProblemAssistantView />}

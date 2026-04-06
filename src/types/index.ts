@@ -11,4 +11,6 @@ export interface UserData {
   school: string;
   gradYear: string;
   agreedToTerms: boolean;
+  googleDriveConnected?: boolean;
+  googleDriveAccessToken?: string;
 }
