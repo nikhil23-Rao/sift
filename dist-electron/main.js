@@ -85,9 +85,13 @@ async function captureScreen(win2) {
     }
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.size;
+    const scaleFactor = primaryDisplay.scaleFactor || 1;
     const sources = await desktopCapturer.getSources({
       types: ["screen"],
-      thumbnailSize: { width, height }
+      thumbnailSize: {
+        width: Math.round(width * scaleFactor),
+        height: Math.round(height * scaleFactor)
+      }
     });
     if (win2) {
       win2.showInactive();
@@ -1549,14 +1553,180 @@ function setupIpc(win2) {
   ipcMain.handle("handle-student-search", async (_event, query, institutionName, googleDriveAccessToken) => {
     return await handleStudentSearch(query, institutionName, googleDriveAccessToken);
   });
+  ipcMain.handle("send-detected-events", (_event, events) => {
+    if (win2) {
+      win2.showInactive();
+      win2.webContents.send("detected-events", events);
+    }
+  });
+  ipcMain.on("hide-window", () => {
+    win2 == null ? void 0 : win2.hide();
+  });
 }
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
+global.__dirname = __dirname$1;
+globalThis.__dirname = __dirname$1;
 process.env.APP_ROOT = path.join(__dirname$1, "..");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
 let win;
+let scannerInterval = null;
+let tesseractWorker = null;
+let isScannerRunning = false;
+async function extractTextFromImage(imageBuffer) {
+  try {
+    if (!tesseractWorker) {
+      const { createWorker } = await import("tesseract.js");
+      tesseractWorker = await createWorker("eng");
+    }
+    const { data: { text } } = await tesseractWorker.recognize(imageBuffer);
+    return text;
+  } catch (error) {
+    console.error("Tesseract OCR failed:", error);
+    return "";
+  }
+}
+function containsDeadline(text) {
+  const lowerText = text.toLowerCase();
+  const highConfidenceKeywords = ["deadline", "midterm", "syllabus", "assignment due"];
+  if (highConfidenceKeywords.some((kw) => lowerText.includes(kw))) return true;
+  const datePattern = /(\d{1,2}[\/\-]\d{1,2})|((jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2})/i;
+  const timePattern = /(\d{1,2}(:\d{2})?\s*(pm|am))|(\d{1,2}:\d{2})/i;
+  const contextKeywords = ["due", "exam", "quiz", "test", "homework", "submit"];
+  const hasDateOrTime = datePattern.test(lowerText) || timePattern.test(lowerText);
+  const hasContextKeyword = contextKeywords.some((kw) => lowerText.includes(kw));
+  return hasContextKeyword && hasDateOrTime;
+}
+async function extractEventsWithGemini(text) {
+  const apiKey = process.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error("VITE_GEMINI_API_KEY is not set in the environment");
+    return [];
+  }
+  try {
+    const genAI2 = new GoogleGenerativeAI(apiKey);
+    const model = genAI2.getGenerativeModel({ model: "gemini-2.5-flash" });
+    console.log("Ambient Scanner: Sending OCR text to Gemini:", text.substring(0, 200) + "...");
+    const systemPrompt = `
+      Analyze the following OCR text from a student's screen. 
+      Identify any specific upcoming deadlines, assignments, exams, or meetings.
+      
+      Output Rules:
+      1. Return a JSON array of objects: Array<{ title: string, date: string, time?: string }>
+      2. If you find something that looks like a deadline but the OCR is messy, use your best judgment to fix typos (e.g. "mldterm" -> "midterm", "due frlday" -> "due Friday").
+      3. If NO specific deadlines are found, return exactly: []
+      4. Return ONLY the raw JSON. No markdown backticks, no "json" label.
+      
+      OCR Text:
+      """
+      ${text}
+      """
+    `;
+    const result = await model.generateContent(systemPrompt);
+    const response = await result.response;
+    const responseText = response.text().trim();
+    console.log("Ambient Scanner: Gemini raw response text:", responseText);
+    const jsonMatch = responseText.match(/\[.*\]/s);
+    const cleanJson = jsonMatch ? jsonMatch[0] : responseText;
+    const parsed = JSON.parse(cleanJson);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error("Ambient Scanner: Gemini extraction failed:", error);
+    return [];
+  }
+}
+let lastExtractedText = "";
+function isHighlySimilar(text1, text2) {
+  if (!text1 || !text2) return false;
+  const normalize = (t) => t.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const norm1 = normalize(text1);
+  const norm2 = normalize(text2);
+  if (norm1 === norm2) return true;
+  if (norm1.length < 20 || norm2.length < 20) return norm1 === norm2;
+  const words1 = text1.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+  const words2 = text2.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+  if (words1.length === 0 || words2.length === 0) return false;
+  const set2 = new Set(words2);
+  const matches = words1.filter((w) => set2.has(w)).length;
+  const similarity = matches / Math.max(words1.length, words2.length);
+  return similarity > 0.85;
+}
+async function startAmbientScanner(browserWindow) {
+  if (scannerInterval) clearInterval(scannerInterval);
+  scannerInterval = setInterval(async () => {
+    if (!browserWindow || browserWindow.isDestroyed() || isScannerRunning) return;
+    isScannerRunning = true;
+    let imageBuffer = null;
+    let sources = null;
+    try {
+      console.log("Ambient Scanner: Heartbeat starting...");
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const { width, height } = primaryDisplay.size;
+      const scaleFactor = primaryDisplay.scaleFactor || 1;
+      sources = await desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: {
+          width: Math.round(width * scaleFactor),
+          height: Math.round(height * scaleFactor)
+        }
+      });
+      const primarySource = sources[0];
+      if (!primarySource) {
+        console.log("Ambient Scanner: No primary source found.");
+        isScannerRunning = false;
+        return;
+      }
+      imageBuffer = primarySource.thumbnail.toPNG();
+      const text = await extractTextFromImage(imageBuffer);
+      imageBuffer = null;
+      sources = null;
+      const sanitizedText = text.trim();
+      if (sanitizedText.length < 20) {
+        console.log("Ambient Scanner: Text too short, skipping.");
+        isScannerRunning = false;
+        return;
+      }
+      const similarity = lastExtractedText ? "..." : "N/A";
+      if (isHighlySimilar(sanitizedText, lastExtractedText)) {
+        console.log("Ambient Scanner: Content highly similar to previous scan, skipping.");
+        isScannerRunning = false;
+        return;
+      }
+      console.log("Ambient Scanner: New content detected. Checking for keywords...");
+      lastExtractedText = sanitizedText;
+      if (containsDeadline(text)) {
+        console.log("Ambient Scanner: Potential deadline keywords found. Calling Gemini...");
+        if (browserWindow) {
+          browserWindow.showInactive();
+          browserWindow.webContents.send("scanner-status", "analyzing");
+        }
+        const events = await extractEventsWithGemini(text);
+        if (events && events.length > 0) {
+          console.log(`Ambient Scanner: SUCCESS - Detected ${events.length} events. Sending to HUD.`);
+          browserWindow == null ? void 0 : browserWindow.webContents.send("detected-events", events.map((e) => ({
+            ...e,
+            id: Math.random().toString(36).substring(7),
+            source: "Ambient Scan"
+          })));
+        } else {
+          console.log("Ambient Scanner: No actionable events extracted by Gemini.");
+          browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
+        }
+      } else {
+        console.log("Ambient Scanner: No deadline keywords found.");
+      }
+    } catch (err) {
+      console.error("Ambient Scanner Error:", err);
+      browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
+    } finally {
+      isScannerRunning = false;
+      imageBuffer = null;
+      sources = null;
+    }
+  }, 1e4);
+}
 function createWindow() {
   try {
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -1597,6 +1767,7 @@ function createWindow() {
     registerShortcuts(win);
     setupIpc(win);
     setupDriveHandlers();
+    startAmbientScanner(win);
     win.webContents.setWindowOpenHandler(({ url }) => {
       if (url.startsWith("https:") || url.startsWith("http:")) {
         shell.openExternal(url);
@@ -1605,6 +1776,10 @@ function createWindow() {
     });
     win.on("closed", () => {
       win = null;
+      if (scannerInterval) {
+        clearInterval(scannerInterval);
+        scannerInterval = null;
+      }
     });
   } catch (err) {
     console.error("Failed to create window:", err);
@@ -1627,6 +1802,9 @@ app.on("error", (err) => {
 });
 app.on("will-quit", () => {
   unregisterShortcuts();
+  if (tesseractWorker) {
+    tesseractWorker.terminate();
+  }
 });
 export {
   MAIN_DIST,

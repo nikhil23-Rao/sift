@@ -12,6 +12,7 @@ import { DefaultView } from './components/DefaultView'
 import { ProfileView } from './components/ProfileView'
 import { ProblemAssistantView } from './components/ProblemAssistantView'
 import { TutorOverlay } from './components/TutorOverlay'
+import { ConfirmationHUD } from './components/ConfirmationHUD'
 import SearchMode from './components/SearchMode'
 
 import { useAuth } from './hooks/useAuth'
@@ -20,6 +21,8 @@ import { ActiveMode, UserData } from './types'
 const App = () => {
   const { user, userData, setUserData, authLoading } = useAuth()
   const [activeMode, setActiveMode] = useState<ActiveMode>('default')
+  const [eventQueue, setEventQueue] = useState<DetectedEvent[]>([])
+  const [scannerStatus, setScannerStatus] = useState<'idle' | 'analyzing'>('idle')
   const [searchValue, setSearchValue] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [showCommands, setShowCommands] = useState(false)
@@ -133,7 +136,16 @@ const App = () => {
   }
 
   useEffect(() => {
-    if (!userData?.onboarded) return
+    // Handle Auth and Onboarding resizing
+    if (!user) {
+      window.api?.resizeWindow(500, 600)
+      return
+    }
+
+    if (!userData?.onboarded) {
+      window.api?.resizeWindow(850, 650)
+      return
+    }
     
     const isCollapsed = activeMode === 'default' && searchValue === ''
     
@@ -151,10 +163,11 @@ const App = () => {
       if (activeMode === 'drawing') { contentHeight = 650; windowWidth = 900; }
       else if (activeMode === 'profile') contentHeight = 550;
       else if (activeMode === 'problem-assistant' || activeMode === 'search') contentHeight = 600;
+      else if (activeMode === 'confirmation-hud') { contentHeight = 400; windowWidth = 500; }
       
       window.api?.resizeWindow(windowWidth, baseHeight + contentHeight)
     }
-  }, [activeMode, userData, searchValue])
+  }, [activeMode, userData, searchValue, user])
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -165,13 +178,36 @@ const App = () => {
     }
     window.addEventListener('keydown', handleGlobalKeyDown)
     
+    let unsubEvents: (() => void) | undefined;
+    let unsubStatus: (() => void) | undefined;
+
     if (window.api?.onTriggerProblemAssistant) {
       window.api.onTriggerProblemAssistant(() => {
         setActiveMode('problem-assistant')
       })
     }
 
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown)
+    if (window.api?.onDetectedEvents) {
+      unsubEvents = window.api.onDetectedEvents((newEvents: DetectedEvent[]) => {
+        setEventQueue(prev => [...prev, ...newEvents])
+        setActiveMode('confirmation-hud')
+      })
+    }
+
+    if (window.api?.onScannerStatus) {
+      unsubStatus = window.api.onScannerStatus((status: 'idle' | 'analyzing') => {
+        setScannerStatus(status)
+        if (status === 'analyzing') {
+          setActiveMode('confirmation-hud')
+        }
+      })
+    }
+
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown)
+      unsubEvents?.()
+      unsubStatus?.()
+    }
   }, [])
 
   const handleOnboardingComplete = async (data: any) => {
@@ -418,6 +454,18 @@ const App = () => {
               {activeMode === 'drawing' && <div className="h-full"><Tldraw persistenceKey="ghost-hud-canvas" inferDarkMode /></div>}
               {activeMode === 'profile' && <ProfileView userData={userData} />}
               {activeMode === 'problem-assistant' && <ProblemAssistantView />}
+              {activeMode === 'confirmation-hud' && (
+                <ConfirmationHUD 
+                  isVisible={activeMode === 'confirmation-hud'} 
+                  eventQueue={eventQueue}
+                  setEventQueue={setEventQueue}
+                  scannerStatus={scannerStatus}
+                  onQueueEmpty={() => {
+                    setActiveMode('default');
+                    window.api?.hideWindow();
+                  }} 
+                />
+              )}
             </div>
 
             {activeMode !== 'problem-assistant' && activeMode !== 'drawing' && (

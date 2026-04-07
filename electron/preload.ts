@@ -12,6 +12,15 @@ contextBridge.exposeInMainWorld('api', {
   searchGoogleDrive: (query: string, token: string) => ipcRenderer.invoke('search-google-drive', query, token),
   createDriveDocument: (name: string, token: string) => ipcRenderer.invoke('create-drive-document', name, token),
   deleteDriveFile: (fileId: string, token: string) => ipcRenderer.invoke('delete-drive-file', fileId, token),
+  sendDetectedEvents: (events: any[]) => ipcRenderer.invoke('send-detected-events', events),
+  onDetectedEvents: (callback: (events: any[]) => void) => {
+    ipcRenderer.on('detected-events', (_event, events) => callback(events))
+    return () => ipcRenderer.removeAllListeners('detected-events')
+  },
+  onScannerStatus: (callback: (status: 'idle' | 'analyzing') => void) => {
+    ipcRenderer.on('scanner-status', (_event, status) => callback(status))
+    return () => ipcRenderer.removeAllListeners('scanner-status')
+  },
   onTriggerProblemAssistant: (callback: () => void) => {
     ipcRenderer.on('trigger-problem-assistant', () => callback())
   },

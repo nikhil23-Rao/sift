@@ -10,6 +10,15 @@ electron.contextBridge.exposeInMainWorld("api", {
   searchGoogleDrive: (query, token) => electron.ipcRenderer.invoke("search-google-drive", query, token),
   createDriveDocument: (name, token) => electron.ipcRenderer.invoke("create-drive-document", name, token),
   deleteDriveFile: (fileId, token) => electron.ipcRenderer.invoke("delete-drive-file", fileId, token),
+  sendDetectedEvents: (events) => electron.ipcRenderer.invoke("send-detected-events", events),
+  onDetectedEvents: (callback) => {
+    electron.ipcRenderer.on("detected-events", (_event, events) => callback(events));
+    return () => electron.ipcRenderer.removeAllListeners("detected-events");
+  },
+  onScannerStatus: (callback) => {
+    electron.ipcRenderer.on("scanner-status", (_event, status) => callback(status));
+    return () => electron.ipcRenderer.removeAllListeners("scanner-status");
+  },
   onTriggerProblemAssistant: (callback) => {
     electron.ipcRenderer.on("trigger-problem-assistant", () => callback());
   },

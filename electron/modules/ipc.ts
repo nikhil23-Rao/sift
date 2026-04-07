@@ -34,4 +34,16 @@ export function setupIpc(win: BrowserWindow | null) {
   ipcMain.handle('handle-student-search', async (_event, query, institutionName, googleDriveAccessToken) => {
     return await handleStudentSearch(query, institutionName, googleDriveAccessToken)
   })
+
+  ipcMain.handle('send-detected-events', (_event, events) => {
+    // Show window without stealing focus
+    if (win) {
+      win.showInactive()
+      win.webContents.send('detected-events', events)
+    }
+  })
+
+  ipcMain.on('hide-window', () => {
+    win?.hide()
+  })
 }

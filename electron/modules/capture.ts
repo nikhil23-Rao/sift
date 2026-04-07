@@ -12,10 +12,14 @@ export async function captureScreen(win: BrowserWindow | null) {
 
     const primaryDisplay = screen.getPrimaryDisplay()
     const { width, height } = primaryDisplay.size
+    const scaleFactor = primaryDisplay.scaleFactor || 1
     
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { width, height }
+      thumbnailSize: { 
+        width: Math.round(width * scaleFactor), 
+        height: Math.round(height * scaleFactor) 
+      }
     })
     
     // Re-show the window as soon as possible
