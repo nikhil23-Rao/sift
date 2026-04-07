@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('api', {
   onTriggerProblemAssistant: (callback: () => void) => {
     ipcRenderer.on('trigger-problem-assistant', () => callback())
   },
+  setScreenwatchMode: (mode: 'automatic' | 'manual') => ipcRenderer.send('set-screenwatch-mode', mode),
+  triggerManualScan: () => ipcRenderer.invoke('trigger-manual-scan'),
   // Add more methods as needed
   onMainProcessMessage: (callback: (message: string) => void) => {
     ipcRenderer.on('main-process-message', (_event, message) => callback(message))

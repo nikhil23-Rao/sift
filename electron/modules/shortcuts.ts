@@ -1,4 +1,5 @@
 import { globalShortcut, BrowserWindow, screen } from 'electron'
+import { triggerManualScan } from '../main'
 
 export function registerShortcuts(win: BrowserWindow | null) {
   const toggleShortcut = 'CommandOrControl+/'
@@ -10,6 +11,13 @@ export function registerShortcuts(win: BrowserWindow | null) {
       win.showInactive()
     }
   })
+
+  globalShortcut.register('CommandOrControl+Alt+S', async () => {
+    console.log('Shortcut Triggered: Manual Scan (Cmd+Alt+S)')
+    await triggerManualScan()
+  })
+
+  console.log('Shortcuts: Registered Cmd+Alt+S for manual scan')
 
   const moveWindow = (pos: 'tl' | 'tc' | 'tr' | 'lc' | 'cc' | 'rc' | 'bl' | 'bc' | 'br') => {
     if (!win) return

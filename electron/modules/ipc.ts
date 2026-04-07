@@ -1,8 +1,19 @@
 import { ipcMain, BrowserWindow, screen } from 'electron'
 import { captureScreen } from './capture'
 import { handleStudentSearch } from './search'
+import { setScreenwatchMode, triggerManualScan } from '../main'
 
 export function setupIpc(win: BrowserWindow | null) {
+  ipcMain.on('set-screenwatch-mode', (_event, mode) => {
+    console.log(`IPC: Received set-screenwatch-mode -> ${mode}`)
+    setScreenwatchMode(mode)
+  })
+
+  ipcMain.handle('trigger-manual-scan', async () => {
+    console.log('IPC: Received trigger-manual-scan')
+    await triggerManualScan()
+  })
+
   ipcMain.on('hide-window', () => {
     win?.hide()
   })

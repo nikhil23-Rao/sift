@@ -22,6 +22,9 @@ interface Window {
     captureScreen: () => Promise<string>
     onTriggerProblemAssistant: (callback: () => void) => void
     onMainProcessMessage: (callback: (message: string) => void) => void
+    setScreenwatchMode: (mode: 'automatic' | 'manual') => void
+    onDetectedEvents: (callback: (events: any[]) => void) => () => void
+    onScannerStatus: (callback: (status: 'idle' | 'analyzing') => void) => () => void
+    triggerManualScan: () => Promise<void>
   }
-
 }

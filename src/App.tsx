@@ -93,6 +93,14 @@ const App = () => {
   }, [searchValue, activeMode])
 
   useEffect(() => {
+    // Sync screenwatch mode (default to automatic if not set)
+    const currentMode = userData?.screenwatchMode || 'automatic'
+    if (window.api?.setScreenwatchMode) {
+      window.api.setScreenwatchMode(currentMode)
+    }
+  }, [userData?.screenwatchMode])
+
+  useEffect(() => {
     if (userData?.onboarded && activeMode !== 'profile') inputRef.current?.focus()
   }, [userData, activeMode])
 
@@ -213,9 +221,16 @@ const App = () => {
   const handleOnboardingComplete = async (data: any) => {
     if (!user) return
     const newUserData: UserData = {
-      uid: user.uid, email: user.email || '', displayName: data.displayName || 'User',
-      photoURL: user.photoURL || '', onboarded: true, status: data.status,
-      school: data.school || 'N/A', gradYear: data.gradYear || 'N/A', agreedToTerms: data.agreedToTerms
+      uid: user.uid, 
+      email: user.email || '', 
+      displayName: data.displayName || 'User',
+      photoURL: user.photoURL || '', 
+      onboarded: true, 
+      status: data.status,
+      school: data.school || 'N/A', 
+      gradYear: data.gradYear || 'N/A', 
+      agreedToTerms: data.agreedToTerms,
+      screenwatchMode: data.screenwatchMode || 'automatic'
     }
     await setDoc(doc(db, 'users', user.uid), newUserData)
     setUserData(newUserData)

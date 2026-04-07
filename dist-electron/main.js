@@ -11,6 +11,11 @@ function registerShortcuts(win2) {
       win2.showInactive();
     }
   });
+  globalShortcut.register("CommandOrControl+Alt+S", async () => {
+    console.log("Shortcut Triggered: Manual Scan (Cmd+Alt+S)");
+    await triggerManualScan();
+  });
+  console.log("Shortcuts: Registered Cmd+Alt+S for manual scan");
   const moveWindow = (pos) => {
     if (!win2) return;
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -1528,6 +1533,14 @@ Content: ${r.content}`).join("\n\n");
   }
 }
 function setupIpc(win2) {
+  ipcMain.on("set-screenwatch-mode", (_event, mode) => {
+    console.log(`IPC: Received set-screenwatch-mode -> ${mode}`);
+    setScreenwatchMode(mode);
+  });
+  ipcMain.handle("trigger-manual-scan", async () => {
+    console.log("IPC: Received trigger-manual-scan");
+    await triggerManualScan();
+  });
   ipcMain.on("hide-window", () => {
     win2 == null ? void 0 : win2.hide();
   });
@@ -1637,7 +1650,6 @@ async function extractEventsWithGemini(text) {
     return [];
   }
 }
-let lastExtractedText = "";
 function isHighlySimilar(text1, text2) {
   if (!text1 || !text2) return false;
   const normalize = (t) => t.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -1653,77 +1665,93 @@ function isHighlySimilar(text1, text2) {
   const similarity = matches / Math.max(words1.length, words2.length);
   return similarity > 0.85;
 }
+let lastExtractedText = "";
+let screenwatchMode = "automatic";
+function setScreenwatchMode(mode) {
+  screenwatchMode = mode;
+  console.log(`Ambient Scanner: Mode set to ${mode}`);
+}
+async function performAmbientScan(browserWindow) {
+  if (!browserWindow || browserWindow.isDestroyed() || isScannerRunning) return;
+  isScannerRunning = true;
+  let imageBuffer = null;
+  let sources = null;
+  try {
+    console.log("Ambient Scanner: Scanning...");
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.size;
+    const scaleFactor = primaryDisplay.scaleFactor || 1;
+    sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: {
+        width: Math.round(width * scaleFactor),
+        height: Math.round(height * scaleFactor)
+      }
+    });
+    const primarySource = sources[0];
+    if (!primarySource) {
+      console.log("Ambient Scanner: No primary source found.");
+      isScannerRunning = false;
+      return;
+    }
+    imageBuffer = primarySource.thumbnail.toPNG();
+    const text = await extractTextFromImage(imageBuffer);
+    imageBuffer = null;
+    sources = null;
+    const sanitizedText = text.trim();
+    if (sanitizedText.length < 20) {
+      console.log("Ambient Scanner: Text too short, skipping.");
+      isScannerRunning = false;
+      return;
+    }
+    if (isHighlySimilar(sanitizedText, lastExtractedText)) {
+      console.log("Ambient Scanner: Content highly similar to previous scan, skipping.");
+      isScannerRunning = false;
+      return;
+    }
+    console.log("Ambient Scanner: New content detected. Checking for keywords...");
+    lastExtractedText = sanitizedText;
+    if (containsDeadline(text)) {
+      console.log("Ambient Scanner: Potential deadline keywords found. Calling Gemini...");
+      if (browserWindow) {
+        browserWindow.showInactive();
+        browserWindow.webContents.send("scanner-status", "analyzing");
+      }
+      const events = await extractEventsWithGemini(text);
+      if (events && events.length > 0) {
+        console.log(`Ambient Scanner: SUCCESS - Detected ${events.length} events. Sending to HUD.`);
+        browserWindow == null ? void 0 : browserWindow.webContents.send("detected-events", events.map((e) => ({
+          ...e,
+          id: Math.random().toString(36).substring(7),
+          source: "Ambient Scan"
+        })));
+      } else {
+        console.log("Ambient Scanner: No actionable events extracted by Gemini.");
+        browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
+      }
+    } else {
+      console.log("Ambient Scanner: No deadline keywords found.");
+    }
+  } catch (err) {
+    console.error("Ambient Scanner Error:", err);
+    browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
+  } finally {
+    isScannerRunning = false;
+    imageBuffer = null;
+    sources = null;
+  }
+}
+async function triggerManualScan() {
+  console.log("Ambient Scanner: Manual trigger received.");
+  const activeWin = BrowserWindow.getAllWindows()[0] || win;
+  await performAmbientScan(activeWin);
+}
 async function startAmbientScanner(browserWindow) {
   if (scannerInterval) clearInterval(scannerInterval);
   scannerInterval = setInterval(async () => {
-    if (!browserWindow || browserWindow.isDestroyed() || isScannerRunning) return;
-    isScannerRunning = true;
-    let imageBuffer = null;
-    let sources = null;
-    try {
-      console.log("Ambient Scanner: Heartbeat starting...");
-      const primaryDisplay = screen.getPrimaryDisplay();
-      const { width, height } = primaryDisplay.size;
-      const scaleFactor = primaryDisplay.scaleFactor || 1;
-      sources = await desktopCapturer.getSources({
-        types: ["screen"],
-        thumbnailSize: {
-          width: Math.round(width * scaleFactor),
-          height: Math.round(height * scaleFactor)
-        }
-      });
-      const primarySource = sources[0];
-      if (!primarySource) {
-        console.log("Ambient Scanner: No primary source found.");
-        isScannerRunning = false;
-        return;
-      }
-      imageBuffer = primarySource.thumbnail.toPNG();
-      const text = await extractTextFromImage(imageBuffer);
-      imageBuffer = null;
-      sources = null;
-      const sanitizedText = text.trim();
-      if (sanitizedText.length < 20) {
-        console.log("Ambient Scanner: Text too short, skipping.");
-        isScannerRunning = false;
-        return;
-      }
-      const similarity = lastExtractedText ? "..." : "N/A";
-      if (isHighlySimilar(sanitizedText, lastExtractedText)) {
-        console.log("Ambient Scanner: Content highly similar to previous scan, skipping.");
-        isScannerRunning = false;
-        return;
-      }
-      console.log("Ambient Scanner: New content detected. Checking for keywords...");
-      lastExtractedText = sanitizedText;
-      if (containsDeadline(text)) {
-        console.log("Ambient Scanner: Potential deadline keywords found. Calling Gemini...");
-        if (browserWindow) {
-          browserWindow.showInactive();
-          browserWindow.webContents.send("scanner-status", "analyzing");
-        }
-        const events = await extractEventsWithGemini(text);
-        if (events && events.length > 0) {
-          console.log(`Ambient Scanner: SUCCESS - Detected ${events.length} events. Sending to HUD.`);
-          browserWindow == null ? void 0 : browserWindow.webContents.send("detected-events", events.map((e) => ({
-            ...e,
-            id: Math.random().toString(36).substring(7),
-            source: "Ambient Scan"
-          })));
-        } else {
-          console.log("Ambient Scanner: No actionable events extracted by Gemini.");
-          browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
-        }
-      } else {
-        console.log("Ambient Scanner: No deadline keywords found.");
-      }
-    } catch (err) {
-      console.error("Ambient Scanner Error:", err);
-      browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
-    } finally {
-      isScannerRunning = false;
-      imageBuffer = null;
-      sources = null;
+    console.log(`Ambient Scanner: Heartbeat (Mode: ${screenwatchMode})`);
+    if (screenwatchMode === "automatic") {
+      await performAmbientScan(browserWindow);
     }
   }, 1e4);
 }
@@ -1809,5 +1837,8 @@ app.on("will-quit", () => {
 export {
   MAIN_DIST,
   RENDERER_DIST,
-  VITE_DEV_SERVER_URL
+  VITE_DEV_SERVER_URL,
+  performAmbientScan,
+  setScreenwatchMode,
+  triggerManualScan
 };

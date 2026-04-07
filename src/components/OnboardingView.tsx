@@ -12,7 +12,8 @@ export const OnboardingView = ({ user, onComplete }: { user: User, onComplete: (
     status: 'college' as StudentStatus,
     school: '',
     gradYear: '2026',
-    agreedToTerms: false
+    agreedToTerms: false,
+    screenwatchMode: 'automatic' as const
   })
   const [suggestions, setSuggestions] = useState<string[]>([])
 

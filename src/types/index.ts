@@ -21,4 +21,5 @@ export interface UserData {
   agreedToTerms: boolean;
   googleDriveConnected?: boolean;
   googleDriveAccessToken?: string;
+  screenwatchMode?: 'automatic' | 'manual';
 }

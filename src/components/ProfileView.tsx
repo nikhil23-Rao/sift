@@ -40,6 +40,21 @@ export const ProfileView = ({ userData }: { userData: UserData }) => {
     }
   }
 
+  const handleToggleScreenwatch = async () => {
+    const newMode = userData.screenwatchMode === 'manual' ? 'automatic' : 'manual'
+    try {
+      await updateDoc(doc(db, 'users', userData.uid), {
+        screenwatchMode: newMode
+      })
+      // Notify main process of the change
+      if (window.api?.setScreenwatchMode) {
+        window.api.setScreenwatchMode(newMode)
+      }
+    } catch (e) {
+      console.error("Failed to update screenwatch mode:", e)
+    }
+  }
+
   return (
     <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 no-drag h-full overflow-y-auto custom-scrollbar">
       <div className="flex items-center space-x-6">
@@ -58,6 +73,37 @@ export const ProfileView = ({ userData }: { userData: UserData }) => {
         <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-1 hover:bg-white/[0.08] transition-colors">
           <p className="text-white/20 text-[10px] font-black uppercase tracking-widest">Graduation</p>
           <p className="text-white font-semibold text-lg">{userData.gradYear || 'N/A'}</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <h3 className="text-[10px] font-black uppercase tracking-widest text-white/20 px-1">Ambient Settings</h3>
+        <div className="bg-white/5 border border-white/10 rounded-[2rem] p-4">
+          <div className="flex items-center justify-between p-2">
+            <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10">
+                <div className={`w-3 h-3 rounded-full ${userData.screenwatchMode === 'manual' ? 'bg-white/20' : 'bg-blue-500 animate-pulse'}`} />
+              </div>
+              <div>
+                <p className="text-white font-bold text-sm">Screenwatch Mode</p>
+                <p className="text-white/40 text-xs font-medium">
+                  {userData.screenwatchMode === 'manual' 
+                    ? 'Manual (Shortcut: ⌥⌘S)' 
+                    : 'Automatic (Every 10s)'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleToggleScreenwatch}
+              className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                userData.screenwatchMode === 'manual'
+                  ? 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'
+                  : 'bg-blue-500 text-white shadow-lg shadow-blue-500/20 hover:scale-105 active:scale-95'
+              }`}
+            >
+              {userData.screenwatchMode === 'manual' ? 'Manual' : 'Automatic'}
+            </button>
+          </div>
         </div>
       </div>
 

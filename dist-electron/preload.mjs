@@ -22,6 +22,8 @@ electron.contextBridge.exposeInMainWorld("api", {
   onTriggerProblemAssistant: (callback) => {
     electron.ipcRenderer.on("trigger-problem-assistant", () => callback());
   },
+  setScreenwatchMode: (mode) => electron.ipcRenderer.send("set-screenwatch-mode", mode),
+  triggerManualScan: () => electron.ipcRenderer.invoke("trigger-manual-scan"),
   // Add more methods as needed
   onMainProcessMessage: (callback) => {
     electron.ipcRenderer.on("main-process-message", (_event, message) => callback(message));

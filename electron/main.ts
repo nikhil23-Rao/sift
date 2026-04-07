@@ -117,8 +117,6 @@ async function extractEventsWithGemini(text: string): Promise<ExtractedEvent[]> 
   }
 }
 
-let lastExtractedText = ""
-
 function isHighlySimilar(text1: string, text2: string): boolean {
   if (!text1 || !text2) return false;
   
@@ -141,94 +139,114 @@ function isHighlySimilar(text1: string, text2: string): boolean {
   return similarity > 0.85; 
 }
 
+let lastExtractedText = ""
+let screenwatchMode: 'automatic' | 'manual' = 'automatic'
+
+export function setScreenwatchMode(mode: 'automatic' | 'manual') {
+  screenwatchMode = mode;
+  console.log(`Ambient Scanner: Mode set to ${mode}`);
+}
+
+export async function performAmbientScan(browserWindow: BrowserWindow | null) {
+  if (!browserWindow || browserWindow.isDestroyed() || isScannerRunning) return
+
+  isScannerRunning = true;
+  let imageBuffer: Buffer | null = null;
+  let sources: Electron.DesktopCapturerSource[] | null = null;
+
+  try {
+    console.log('Ambient Scanner: Scanning...');
+    
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.size;
+    const scaleFactor = primaryDisplay.scaleFactor || 1;
+    
+    sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { 
+        width: Math.round(width * scaleFactor), 
+        height: Math.round(height * scaleFactor) 
+      }
+    })
+
+    const primarySource = sources[0]
+    if (!primarySource) {
+      console.log('Ambient Scanner: No primary source found.');
+      isScannerRunning = false;
+      return;
+    }
+
+    // Use PNG for lossless quality, which significantly improves OCR accuracy
+    imageBuffer = primarySource.thumbnail.toPNG();
+    const text = await extractTextFromImage(imageBuffer);
+    
+    imageBuffer = null;
+    sources = null;
+
+    const sanitizedText = text.trim();
+    
+    if (sanitizedText.length < 20) {
+      console.log('Ambient Scanner: Text too short, skipping.');
+      isScannerRunning = false;
+      return;
+    }
+
+    if (isHighlySimilar(sanitizedText, lastExtractedText)) {
+      console.log('Ambient Scanner: Content highly similar to previous scan, skipping.');
+      isScannerRunning = false;
+      return;
+    }
+
+    console.log('Ambient Scanner: New content detected. Checking for keywords...');
+    lastExtractedText = sanitizedText;
+
+    if (containsDeadline(text)) {
+      console.log('Ambient Scanner: Potential deadline keywords found. Calling Gemini...');
+      
+      if (browserWindow) {
+        browserWindow.showInactive();
+        browserWindow.webContents.send('scanner-status', 'analyzing');
+      }
+
+      const events = await extractEventsWithGemini(text)
+      
+      if (events && events.length > 0) {
+        console.log(`Ambient Scanner: SUCCESS - Detected ${events.length} events. Sending to HUD.`);
+        browserWindow?.webContents.send('detected-events', events.map(e => ({
+          ...e,
+          id: Math.random().toString(36).substring(7),
+          source: 'Ambient Scan'
+        })))
+      } else {
+        console.log('Ambient Scanner: No actionable events extracted by Gemini.');
+        browserWindow?.webContents.send('scanner-status', 'idle');
+      }
+    } else {
+      console.log('Ambient Scanner: No deadline keywords found.');
+    }
+  } catch (err) {
+    console.error('Ambient Scanner Error:', err)
+    browserWindow?.webContents.send('scanner-status', 'idle');
+  } finally {
+    isScannerRunning = false;
+    imageBuffer = null;
+    sources = null;
+  }
+}
+
+export async function triggerManualScan() {
+  console.log('Ambient Scanner: Manual trigger received.')
+  const activeWin = BrowserWindow.getAllWindows()[0] || win;
+  await performAmbientScan(activeWin)
+}
+
 async function startAmbientScanner(browserWindow: BrowserWindow | null) {
   if (scannerInterval) clearInterval(scannerInterval)
 
   scannerInterval = setInterval(async () => {
-    if (!browserWindow || browserWindow.isDestroyed() || isScannerRunning) return
-
-    isScannerRunning = true;
-    let imageBuffer: Buffer | null = null;
-    let sources: Electron.DesktopCapturerSource[] | null = null;
-
-    try {
-      console.log('Ambient Scanner: Heartbeat starting...');
-      
-      const primaryDisplay = screen.getPrimaryDisplay();
-      const { width, height } = primaryDisplay.size;
-      const scaleFactor = primaryDisplay.scaleFactor || 1;
-      
-      sources = await desktopCapturer.getSources({
-        types: ['screen'],
-        thumbnailSize: { 
-          width: Math.round(width * scaleFactor), 
-          height: Math.round(height * scaleFactor) 
-        }
-      })
-
-      const primarySource = sources[0]
-      if (!primarySource) {
-        console.log('Ambient Scanner: No primary source found.');
-        isScannerRunning = false;
-        return;
-      }
-
-      // Use PNG for lossless quality, which significantly improves OCR accuracy
-      imageBuffer = primarySource.thumbnail.toPNG();
-      const text = await extractTextFromImage(imageBuffer);
-      
-      imageBuffer = null;
-      sources = null;
-
-      const sanitizedText = text.trim();
-      
-      if (sanitizedText.length < 20) {
-        console.log('Ambient Scanner: Text too short, skipping.');
-        isScannerRunning = false;
-        return;
-      }
-
-      const similarity = lastExtractedText ? "..." : "N/A";
-      if (isHighlySimilar(sanitizedText, lastExtractedText)) {
-        console.log('Ambient Scanner: Content highly similar to previous scan, skipping.');
-        isScannerRunning = false;
-        return;
-      }
-
-      console.log('Ambient Scanner: New content detected. Checking for keywords...');
-      lastExtractedText = sanitizedText;
-
-      if (containsDeadline(text)) {
-        console.log('Ambient Scanner: Potential deadline keywords found. Calling Gemini...');
-        
-        if (browserWindow) {
-          browserWindow.showInactive();
-          browserWindow.webContents.send('scanner-status', 'analyzing');
-        }
-
-        const events = await extractEventsWithGemini(text)
-        
-        if (events && events.length > 0) {
-          console.log(`Ambient Scanner: SUCCESS - Detected ${events.length} events. Sending to HUD.`);
-          browserWindow?.webContents.send('detected-events', events.map(e => ({
-            ...e,
-            id: Math.random().toString(36).substring(7),
-            source: 'Ambient Scan'
-          })))
-        } else {
-          console.log('Ambient Scanner: No actionable events extracted by Gemini.');
-          browserWindow?.webContents.send('scanner-status', 'idle');
-        }
-      } else {
-        console.log('Ambient Scanner: No deadline keywords found.');
-      }
-    } catch (err) {
-      console.error('Ambient Scanner Error:', err)
-      browserWindow?.webContents.send('scanner-status', 'idle');
-    } finally {
-      isScannerRunning = false;
-      imageBuffer = null;
-      sources = null;
+    console.log(`Ambient Scanner: Heartbeat (Mode: ${screenwatchMode})`)
+    if (screenwatchMode === 'automatic') {
+      await performAmbientScan(browserWindow)
     }
   }, 10000)
 }
