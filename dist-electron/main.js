@@ -1652,18 +1652,48 @@ async function extractEventsWithGemini(text) {
 }
 function isHighlySimilar(text1, text2) {
   if (!text1 || !text2) return false;
-  const normalize = (t) => t.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalize = (t) => t.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
   const norm1 = normalize(text1);
   const norm2 = normalize(text2);
   if (norm1 === norm2) return true;
-  if (norm1.length < 20 || norm2.length < 20) return norm1 === norm2;
-  const words1 = text1.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-  const words2 = text2.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-  if (words1.length === 0 || words2.length === 0) return false;
+  if (norm1.length < 50 || norm2.length < 50) {
+    const distance = levenshteinDistance(norm1, norm2);
+    const maxLength = Math.max(norm1.length, norm2.length);
+    const charSimilarity = (maxLength - distance) / maxLength;
+    return charSimilarity > 0.85;
+  }
+  const words1 = norm1.split(" ").filter((w) => w.length > 3);
+  const words2 = norm2.split(" ").filter((w) => w.length > 3);
+  if (words1.length === 0 || words2.length === 0) return norm1 === norm2;
+  const set1 = new Set(words1);
   const set2 = new Set(words2);
-  const matches = words1.filter((w) => set2.has(w)).length;
-  const similarity = matches / Math.max(words1.length, words2.length);
-  return similarity > 0.85;
+  const intersection = new Set([...set1].filter((w) => set2.has(w)));
+  const union = /* @__PURE__ */ new Set([...set1, ...set2]);
+  const jaccardSimilarity = intersection.size / union.size;
+  const containment1 = intersection.size / set1.size;
+  const containment2 = intersection.size / set2.size;
+  return jaccardSimilarity > 0.7 || containment1 > 0.9 || containment2 > 0.9;
+}
+function levenshteinDistance(s1, s2) {
+  const m = s1.length;
+  const n = s2.length;
+  const d = [];
+  for (let i = 0; i <= m; i++) d[i] = [i];
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,
+        // deletion
+        d[i][j - 1] + 1,
+        // insertion
+        d[i - 1][j - 1] + cost
+        // substitution
+      );
+    }
+  }
+  return d[m][n];
 }
 let lastExtractedText = "";
 let screenwatchMode = "automatic";
@@ -1712,8 +1742,20 @@ async function performAmbientScan(browserWindow) {
     console.log("Ambient Scanner: New content detected. Checking for keywords...");
     lastExtractedText = sanitizedText;
     if (containsDeadline(text)) {
-      console.log("Ambient Scanner: Potential deadline keywords found. Calling Gemini...");
+      console.log("Ambient Scanner: Potential deadline keywords found. Preparing HUD...");
       if (browserWindow) {
+        if (!browserWindow.isVisible()) {
+          const primaryDisplay2 = screen.getPrimaryDisplay();
+          const { width: screenWidth } = primaryDisplay2.workAreaSize;
+          const notifyWidth = 500;
+          const notifyHeight = 500;
+          browserWindow.setBounds({
+            x: Math.round((screenWidth - notifyWidth) / 2),
+            y: 0,
+            width: notifyWidth,
+            height: notifyHeight
+          }, false);
+        }
         browserWindow.showInactive();
         browserWindow.webContents.send("scanner-status", "analyzing");
       }
@@ -1727,8 +1769,8 @@ async function performAmbientScan(browserWindow) {
         })));
       } else {
         console.log("Ambient Scanner: No actionable events extracted by Gemini.");
-        browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
       }
+      browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
     } else {
       console.log("Ambient Scanner: No deadline keywords found.");
     }

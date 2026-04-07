@@ -20,36 +20,37 @@ export const ConfirmationHUD: React.FC<ConfirmationHUDProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
-    // Handle queue exhaustion and idle status
-    if (eventQueue.length === 0 && scannerStatus === 'idle' && isVisible) {
+    // Switch back to main UI as soon as queue is empty, 
+    // unless we are still in the initial "analyzing" phase (no events yet)
+    if (eventQueue.length === 0 && isVisible && scannerStatus === 'idle') {
       onQueueEmpty();
     }
-  }, [eventQueue, scannerStatus, onQueueEmpty, isVisible]);
+  }, [eventQueue.length, isVisible, onQueueEmpty, scannerStatus]);
 
   const handleAccept = async () => {
     if (eventQueue.length === 0) return;
-    
-    const currentEvent = eventQueue[0];
-    console.log(`Accepted Event: ${currentEvent.title}`);
-    
     setIsSyncing(true);
-    // Mock sync delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
+    // Brief delay for professional feedback
+    await new Promise(resolve => setTimeout(resolve, 400));
     setEventQueue(prev => prev.slice(1));
     setIsSyncing(false);
   };
 
-  const handleDismiss = () => {
+  const handleDismiss = async () => {
     if (eventQueue.length === 0) return;
-    
-    console.log("Dismissed");
+    // Add brief delay for consistency with accept action
+    await new Promise(resolve => setTimeout(resolve, 200));
     setEventQueue(prev => prev.slice(1));
+  };
+
+  const handleDismissAll = () => {
+    setEventQueue([]);
   };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isVisible || eventQueue.length === 0 || isSyncing) return;
+      if (!isVisible || isSyncing) return;
+      if (eventQueue.length === 0 && scannerStatus !== 'analyzing') return;
 
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
@@ -57,104 +58,109 @@ export const ConfirmationHUD: React.FC<ConfirmationHUDProps> = ({
       } else if (e.key === 'Escape') {
         e.preventDefault();
         handleDismiss();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'x') {
+        e.preventDefault();
+        handleDismissAll();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isVisible, eventQueue, isSyncing]);
+  }, [isVisible, eventQueue, isSyncing, scannerStatus]);
 
   if (eventQueue.length === 0 && scannerStatus === 'idle') return null;
 
   const currentEvent = eventQueue[0];
 
   return (
-    <div className="h-full w-full flex items-center justify-center p-4 bg-transparent overflow-hidden">
+    <div className="h-full w-full flex flex-col items-center justify-start pt-8 bg-transparent overflow-hidden no-drag pointer-events-none">
       <AnimatePresence mode="wait">
-        {scannerStatus === 'analyzing' && eventQueue.length === 0 ? (
-          <motion.div
-            key="analyzing-loader"
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: -20 }}
-            className="bg-zinc-950/90 backdrop-blur-2xl border border-white/10 rounded-full px-8 py-4 shadow-2xl flex items-center space-x-4"
-          >
-            <div className="relative flex items-center justify-center">
-              <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-ping absolute opacity-75" />
-              <div className="w-2.5 h-2.5 bg-red-500 rounded-full relative" />
+        <motion.div
+          key={currentEvent?.id || 'analyzing'}
+          initial={{ opacity: 0, y: -40, filter: 'blur(10px)' }}
+          animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+          exit={{ opacity: 0, y: -20, filter: 'blur(10px)' }}
+          className="w-[340px] liquid-glass rounded-[2rem] border border-white/10 shadow-2xl pointer-events-auto overflow-hidden flex flex-col"
+        >
+          {/* Status Header */}
+          <div className="px-6 py-4 border-b border-white/[0.05] flex items-center justify-between bg-white/[0.02]">
+            <div className="flex items-center space-x-2">
+              <div className={`w-1.5 h-1.5 rounded-full ${scannerStatus === 'analyzing' ? 'bg-blue-500 animate-pulse' : 'bg-green-500'}`} />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Sift Intelligence</span>
             </div>
-            <div className="flex flex-col">
-              <span className="text-white text-sm font-bold">Deadline noticed</span>
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 animate-pulse">Formatting with AI...</span>
-            </div>
-          </motion.div>
-        ) : currentEvent ? (
-          <motion.div
-            key={currentEvent.id}
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: -20 }}
-            className="relative group overflow-hidden"
-          >
-            {/* Pill Container */}
-            <div className="bg-zinc-950/90 backdrop-blur-2xl border border-white/10 rounded-full px-8 py-4 shadow-2xl flex items-center space-x-6 min-w-[400px]">
-            
-            {/* Action Icon */}
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isSyncing ? 'bg-blue-500 animate-pulse' : 'bg-white/5 border border-white/10 text-white/60'}`}>
-              {isSyncing ? (
-                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              )}
-            </div>
-
-            {/* Event Details */}
-            <div className="flex-1 flex flex-col">
-              <span className="text-white text-sm font-bold truncate max-w-[200px]">{currentEvent.title}</span>
-              <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-white/30">
-                <span>{currentEvent.date}</span>
-                {currentEvent.time && (
-                  <>
-                    <span className="w-1 h-1 bg-white/10 rounded-full" />
-                    <span>{currentEvent.time}</span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div className="flex items-center space-x-4 pl-4 border-l border-white/10">
-              <div className="flex flex-col items-center space-y-1">
-                <div className="flex items-center space-x-1">
-                  <kbd className="px-1 py-0.5 bg-white/10 border border-white/10 rounded text-[9px] text-white/40 font-mono">⌘</kbd>
-                  <kbd className="px-1 py-0.5 bg-white/10 border border-white/10 rounded text-[9px] text-white/40 font-mono">↵</kbd>
-                </div>
-                <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">Accept</span>
-              </div>
-
-              <div className="flex flex-col items-center space-y-1">
-                <kbd className="px-1 py-0.5 bg-white/10 border border-white/10 rounded text-[9px] text-white/40 font-mono">ESC</kbd>
-                <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">Ignore</span>
-              </div>
-            </div>
-
-            {/* Queue Badge */}
             {eventQueue.length > 1 && (
-              <div className="absolute -top-1 -right-1 bg-blue-600 text-white text-[8px] font-black px-2 py-1 rounded-full border-2 border-zinc-950 shadow-lg">
-                +{eventQueue.length - 1}
-              </div>
+              <span className="bg-blue-500/10 text-blue-400 text-[9px] font-black px-2 py-0.5 rounded-full">
+                +{eventQueue.length - 1} More
+              </span>
             )}
           </div>
 
-          {/* Liquid background glow */}
-          <div className="absolute inset-0 bg-blue-500/5 blur-3xl -z-10 rounded-full transition-opacity opacity-0 group-hover:opacity-100" />
+          {/* Main Content Area */}
+          <div className="p-6 min-h-[140px] flex flex-col justify-center">
+            {scannerStatus === 'analyzing' && eventQueue.length === 0 ? (
+              <div className="space-y-2 animate-in fade-in duration-500">
+                <p className="text-white text-lg font-bold leading-tight">Deadline noticed...</p>
+                <p className="text-white/20 text-xs font-medium uppercase tracking-widest animate-pulse">Extracting event details</p>
+              </div>
+            ) : currentEvent ? (
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <p className="text-white text-xl font-bold leading-tight tracking-tight">{currentEvent.title}</p>
+                  <div className="flex items-center space-x-3 text-white/40 font-bold text-[11px] uppercase tracking-widest">
+                    <span>{currentEvent.date}</span>
+                    {currentEvent.time && (
+                      <>
+                        <div className="w-1 h-1 bg-white/10 rounded-full" />
+                        <span>{currentEvent.time}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Controls Footer */}
+          <div className="px-4 py-4 bg-white/[0.03] border-t border-white/[0.05] flex items-center space-x-2">
+            <button 
+              onClick={handleDismiss}
+              disabled={isSyncing || (scannerStatus === 'analyzing' && eventQueue.length === 0)}
+              className="flex-1 py-3 rounded-xl hover:bg-white/5 transition-all text-white/20 hover:text-white group disabled:opacity-0"
+            >
+              <div className="flex flex-col items-center">
+                <kbd className="text-[9px] font-mono opacity-40 group-hover:opacity-100 mb-0.5 transition-opacity">ESC</kbd>
+                <span className="text-[8px] font-black uppercase tracking-widest">Ignore</span>
+              </div>
+            </button>
+
+            <button 
+              onClick={handleAccept}
+              disabled={isSyncing || (scannerStatus === 'analyzing' && eventQueue.length === 0)}
+              className={`flex-[2] py-3 rounded-xl transition-all flex flex-col items-center group relative overflow-hidden ${
+                isSyncing ? 'bg-blue-600' : 'bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white'
+              } disabled:opacity-0`}
+            >
+              {isSyncing ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin my-auto" />
+              ) : (
+                <>
+                  <div className="flex items-center space-x-1 mb-0.5 opacity-40 group-hover:opacity-100 transition-opacity">
+                    <kbd className="text-[9px] font-mono">⌘</kbd>
+                    <kbd className="text-[9px] font-mono">↵</kbd>
+                  </div>
+                  <span className="text-[8px] font-black uppercase tracking-[0.2em]">Add to Calendar</span>
+                </>
+              )}
+              {isSyncing && (
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: '100%' }}
+                  className="absolute bottom-0 left-0 h-0.5 bg-white/40"
+                />
+              )}
+            </button>
+          </div>
         </motion.div>
-        ) : null}
       </AnimatePresence>
     </div>
   );

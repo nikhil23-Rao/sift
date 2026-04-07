@@ -161,6 +161,9 @@ const App = () => {
       const width = window.screen.width
       const height = window.screen.height
       window.api?.resizeWindow(width, height)
+    } else if (activeMode === 'confirmation-hud') {
+      // Compact centered area for the notification card
+      window.api?.resizeWindow(500, 500)
     } else if (isCollapsed) {
       window.api?.resizeWindow(850, 110)
     } else {
@@ -171,7 +174,6 @@ const App = () => {
       if (activeMode === 'drawing') { contentHeight = 650; windowWidth = 900; }
       else if (activeMode === 'profile') contentHeight = 550;
       else if (activeMode === 'problem-assistant' || activeMode === 'search') contentHeight = 600;
-      else if (activeMode === 'confirmation-hud') { contentHeight = 400; windowWidth = 500; }
       
       window.api?.resizeWindow(windowWidth, baseHeight + contentHeight)
     }
@@ -296,6 +298,20 @@ const App = () => {
 
   if (activeMode === 'tutor') {
     return <TutorOverlay onExit={() => setActiveMode('default')} />
+  }
+
+  if (activeMode === 'confirmation-hud') {
+    return (
+      <ConfirmationHUD 
+        isVisible={true} 
+        eventQueue={eventQueue}
+        setEventQueue={setEventQueue}
+        scannerStatus={scannerStatus}
+        onQueueEmpty={() => {
+          setActiveMode('default');
+        }} 
+      />
+    )
   }
 
   return (
@@ -469,18 +485,6 @@ const App = () => {
               {activeMode === 'drawing' && <div className="h-full"><Tldraw persistenceKey="ghost-hud-canvas" inferDarkMode /></div>}
               {activeMode === 'profile' && <ProfileView userData={userData} />}
               {activeMode === 'problem-assistant' && <ProblemAssistantView />}
-              {activeMode === 'confirmation-hud' && (
-                <ConfirmationHUD 
-                  isVisible={activeMode === 'confirmation-hud'} 
-                  eventQueue={eventQueue}
-                  setEventQueue={setEventQueue}
-                  scannerStatus={scannerStatus}
-                  onQueueEmpty={() => {
-                    setActiveMode('default');
-                    window.api?.hideWindow();
-                  }} 
-                />
-              )}
             </div>
 
             {activeMode !== 'problem-assistant' && activeMode !== 'drawing' && (
