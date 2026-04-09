@@ -1,5 +1,6 @@
 import { globalShortcut, screen, desktopCapturer, ipcMain, app, BrowserWindow, shell } from "electron";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 function registerShortcuts(win2) {
   const toggleShortcut = "CommandOrControl+/";
@@ -1612,7 +1613,7 @@ function containsDeadline(text) {
   const hasContextKeyword = contextKeywords.some((kw) => lowerText.includes(kw));
   return hasContextKeyword && hasDateOrTime;
 }
-async function extractEventsWithGemini(text) {
+async function extractEventsWithGemini(text, imageBuffer = null) {
   const apiKey = process.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
     console.error("VITE_GEMINI_API_KEY is not set in the environment");
@@ -1620,24 +1621,34 @@ async function extractEventsWithGemini(text) {
   }
   try {
     const genAI2 = new GoogleGenerativeAI(apiKey);
-    const model = genAI2.getGenerativeModel({ model: "gemini-2.5-flash" });
-    console.log("Ambient Scanner: Sending OCR text to Gemini:", text.substring(0, 200) + "...");
+    const model = genAI2.getGenerativeModel({ model: "gemini-2.5-pro" });
+    console.log("Ambient Scanner: Sending OCR text" + (imageBuffer ? " and image" : "") + " to Gemini:", text.substring(0, 200) + "...");
     const systemPrompt = `
-      Analyze the following OCR text from a student's screen. 
+      Analyze the following image from a student's screen. 
       Identify any specific upcoming deadlines, assignments, exams, or meetings.
+      Use the image to resolve any ambiguities or messy text in the OCR.
       
       Output Rules:
       1. Return a JSON array of objects: Array<{ title: string, date: string, time?: string }>
-      2. If you find something that looks like a deadline but the OCR is messy, use your best judgment to fix typos (e.g. "mldterm" -> "midterm", "due frlday" -> "due Friday").
-      3. If NO specific deadlines are found, return exactly: []
+      2. If you find something that looks like a deadline, use your best judgment to fix typos (e.g. "mldterm" -> "midterm", "due frlday" -> "due Friday").
+      3. If NO specific due dates, deadlines, or calendar worthy events are found, return exactly: []
       4. Return ONLY the raw JSON. No markdown backticks, no "json" label.
       
-      OCR Text:
-      """
-      ${text}
       """
     `;
-    const result = await model.generateContent(systemPrompt);
+    const promptParts = [{
+      text: systemPrompt
+    }];
+    if (imageBuffer) {
+      console.log("Ambient Scanner: Attaching image data to Gemini prompt (base64 size:", imageBuffer.length, "bytes)");
+      promptParts.push({
+        inlineData: {
+          data: imageBuffer.toString("base64"),
+          mimeType: "image/png"
+        }
+      });
+    }
+    const result = await model.generateContent(promptParts);
     const response = await result.response;
     const responseText = response.text().trim();
     console.log("Ambient Scanner: Gemini raw response text:", responseText);
@@ -1725,8 +1736,14 @@ async function performAmbientScan(browserWindow) {
       return;
     }
     imageBuffer = primarySource.thumbnail.toPNG();
+    try {
+      const debugPath = path.join(process.cwd(), "debug_last_scan.png");
+      fs.writeFileSync(debugPath, imageBuffer);
+      console.log(`Ambient Scanner: Saved scan image to ${debugPath}`);
+    } catch (saveErr) {
+      console.error("Failed to save debug image:", saveErr);
+    }
     const text = await extractTextFromImage(imageBuffer);
-    imageBuffer = null;
     sources = null;
     const sanitizedText = text.trim();
     if (sanitizedText.length < 20) {
@@ -1759,7 +1776,7 @@ async function performAmbientScan(browserWindow) {
         browserWindow.showInactive();
         browserWindow.webContents.send("scanner-status", "analyzing");
       }
-      const events = await extractEventsWithGemini(text);
+      const events = await extractEventsWithGemini(text, imageBuffer);
       if (events && events.length > 0) {
         console.log(`Ambient Scanner: SUCCESS - Detected ${events.length} events. Sending to HUD.`);
         browserWindow == null ? void 0 : browserWindow.webContents.send("detected-events", events.map((e) => ({
@@ -1866,9 +1883,8 @@ app.on("activate", () => {
     createWindow();
   }
 });
-app.whenReady().then(createWindow);
-app.on("error", (err) => {
-  console.error("Electron app error:", err);
+app.whenReady().then(createWindow).catch((err) => {
+  console.error("Error during app initialization:", err);
 });
 app.on("will-quit", () => {
   unregisterShortcuts();
