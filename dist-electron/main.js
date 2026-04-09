@@ -1625,16 +1625,16 @@ async function extractEventsWithGemini(text, imageBuffer = null) {
     console.log("Ambient Scanner: Sending OCR text" + (imageBuffer ? " and image" : "") + " to Gemini:", text.substring(0, 200) + "...");
     const systemPrompt = `
       Analyze the following image from a student's screen. 
-      Identify any specific upcoming deadlines, assignments, exams, or meetings.
-      Use the image to resolve any ambiguities or messy text in the OCR.
+      Identify ALL specific upcoming deadlines, assignments, exams, or meetings visible.
+      It is common for there to be multiple events (e.g. a list of assignments or a calendar view).
+      Capture EVERY distinct event you find.
       
       Output Rules:
       1. Return a JSON array of objects: Array<{ title: string, date: string, time?: string }>
-      2. If you find something that looks like a deadline, use your best judgment to fix typos (e.g. "mldterm" -> "midterm", "due frlday" -> "due Friday").
-      3. If NO specific due dates, deadlines, or calendar worthy events are found, return exactly: []
-      4. Return ONLY the raw JSON. No markdown backticks, no "json" label.
-      
-      """
+      2. If you find multiple events, include them ALL in the array.
+      3. If you find something that looks like a deadline, use your best judgment to fix typos (e.g. "mldterm" -> "midterm", "due frlday" -> "due Friday").
+      4. If NO specific due dates, deadlines, or calendar worthy events are found, return exactly: []
+      5. Return ONLY the raw JSON. No markdown backticks, no "json" label.
     `;
     const promptParts = [{
       text: systemPrompt
@@ -1760,7 +1760,7 @@ async function performAmbientScan(browserWindow) {
     lastExtractedText = sanitizedText;
     if (containsDeadline(text)) {
       console.log("Ambient Scanner: Potential deadline keywords found. Preparing HUD...");
-      if (browserWindow) {
+      if (browserWindow && !browserWindow.isDestroyed()) {
         if (!browserWindow.isVisible()) {
           const primaryDisplay2 = screen.getPrimaryDisplay();
           const { width: screenWidth } = primaryDisplay2.workAreaSize;
@@ -1773,27 +1773,45 @@ async function performAmbientScan(browserWindow) {
             height: notifyHeight
           }, false);
         }
-        browserWindow.showInactive();
-        browserWindow.webContents.send("scanner-status", "analyzing");
+        try {
+          browserWindow.showInactive();
+          browserWindow.webContents.send("scanner-status", "analyzing");
+        } catch (e) {
+          console.warn("Failed to send analyzing status:", e);
+        }
       }
       const events = await extractEventsWithGemini(text, imageBuffer);
-      if (events && events.length > 0) {
-        console.log(`Ambient Scanner: SUCCESS - Detected ${events.length} events. Sending to HUD.`);
-        browserWindow == null ? void 0 : browserWindow.webContents.send("detected-events", events.map((e) => ({
-          ...e,
-          id: Math.random().toString(36).substring(7),
-          source: "Ambient Scan"
-        })));
-      } else {
-        console.log("Ambient Scanner: No actionable events extracted by Gemini.");
+      if (browserWindow && !browserWindow.isDestroyed()) {
+        if (events && events.length > 0) {
+          console.log(`Ambient Scanner: SUCCESS - Detected ${events.length} events. Sending to HUD.`);
+          try {
+            browserWindow.webContents.send("detected-events", events.map((e) => ({
+              ...e,
+              id: Math.random().toString(36).substring(7),
+              source: "Ambient Scan"
+            })));
+          } catch (e) {
+            console.error("Failed to send detected-events:", e);
+          }
+        } else {
+          console.log("Ambient Scanner: No actionable events extracted by Gemini.");
+        }
+        try {
+          browserWindow.webContents.send("scanner-status", "idle");
+        } catch (e) {
+        }
       }
-      browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
     } else {
       console.log("Ambient Scanner: No deadline keywords found.");
     }
   } catch (err) {
     console.error("Ambient Scanner Error:", err);
-    browserWindow == null ? void 0 : browserWindow.webContents.send("scanner-status", "idle");
+    if (browserWindow && !browserWindow.isDestroyed()) {
+      try {
+        browserWindow.webContents.send("scanner-status", "idle");
+      } catch (e) {
+      }
+    }
   } finally {
     isScannerRunning = false;
     imageBuffer = null;
